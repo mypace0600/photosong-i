@@ -1,36 +1,46 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 포토송이(PhotoSong-i)
 
-## Getting Started
+> 목표를 사진으로 키우는 서비스
 
-First, run the development server:
+포토송이는 사용자가 매일 포도알 하나를 채우며 "나는 꾸준한 사람이다"라는 자기 정체성을 만들어가도록 돕는 습관 형성 서비스입니다.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+최신 제품 방향과 MVP 범위는 [PRODUCT_PLAN.md](/Users/jsy94/Desktop/photosong-i/PRODUCT_PLAN.md)를 기준으로 합니다.
+
+## MVP 핵심 경험
+
+```text
+앱 실행
+↓
+포도송이 보기
+↓
+빈 포도알 클릭
+↓
+사진 촬영
+↓
+한 줄 기록
+↓
+등록
+↓
+포도알이 채워지는 애니메이션
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+사용자는 기록하려고 오는 것이 아니라 포도알을 채우려고 옵니다.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 기술 스택
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Next.js
+- TypeScript
+- TailwindCSS
+- Supabase 예정
+- Vercel 예정
 
-## Learn More
+## 실행
 
-To learn more about Next.js, take a look at the following resources:
+현재 로컬 기본 Node가 Next.js 요구 버전보다 낮을 수 있습니다. Node.js `18.17.0` 이상을 사용하세요.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm install
+npm run dev
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+브라우저에서 `http://localhost:3000`을 엽니다.
