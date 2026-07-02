@@ -9,6 +9,7 @@
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
 ```
 
 Vercel에도 같은 값을 Project Settings의 Environment Variables에 등록합니다.
@@ -75,6 +76,7 @@ Vercel 환경변수:
 ```env
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+NEXT_PUBLIC_SITE_URL=https://photosong-i.vercel.app
 ```
 
 Secret key는 Vercel public 환경변수에 넣지 않습니다.

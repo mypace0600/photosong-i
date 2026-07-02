@@ -23,6 +23,10 @@ type Challenge = {
 
 const GRAPE_BUCKET = "grape-photos";
 
+function getAuthRedirectUrl() {
+  return process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+}
+
 function createGrapeRows(count: number) {
   const rows: number[][] = [];
   let grapeIndex = 1;
@@ -222,7 +226,7 @@ export default function Home() {
               email,
               password,
               options: {
-                emailRedirectTo: window.location.origin,
+                emailRedirectTo: getAuthRedirectUrl(),
               },
             })
           : await supabase.auth.signInWithPassword({ email, password });
@@ -259,7 +263,7 @@ export default function Home() {
         type: "signup",
         email,
         options: {
-          emailRedirectTo: window.location.origin,
+          emailRedirectTo: getAuthRedirectUrl(),
         },
       });
 
@@ -285,7 +289,7 @@ export default function Home() {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: window.location.origin,
+          redirectTo: getAuthRedirectUrl(),
         },
       });
 
