@@ -1,33 +1,27 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useMemo, useState } from "react";
+import type { User } from "@supabase/supabase-js";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import type { ChallengeRow, GrapeEntryRow } from "@/lib/database.types";
+import { supabase } from "@/lib/supabase";
 
 type GrapeEntry = {
+  id: string;
   grapeIndex: number;
+  imagePath: string;
   imageUrl: string;
   content: string;
   createdAt: string;
 };
 
 type Challenge = {
+  id: string;
   title: string;
   grapeCount: number;
   entries: GrapeEntry[];
 };
 
-const initialChallenge: Challenge = {
-  title: "운동 30일",
-  grapeCount: 30,
-  entries: Array.from({ length: 12 }, (_, index) => ({
-    grapeIndex: index + 1,
-    imageUrl:
-      index % 2 === 0
-        ? "https://images.unsplash.com/photo-1518611012118-696072aa579a?auto=format&fit=crop&w=900&q=80"
-        : "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&w=900&q=80",
-    content: index === 11 ? "오늘은 5km 뛰었다." : "오늘도 움직였다.",
-    createdAt: `2026.06.${String(18 + index).padStart(2, "0")}`,
-  })),
-};
+const GRAPE_BUCKET = "grape-photos";
 
 function createGrapeRows(count: number) {
   const rows: number[][] = [];
@@ -45,86 +39,516 @@ function createGrapeRows(count: number) {
   return rows;
 }
 
-function formatToday() {
+function formatDate(value: string) {
   return new Intl.DateTimeFormat("ko-KR", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   })
-    .format(new Date())
+    .format(new Date(value))
     .replaceAll(". ", ".")
     .replace(/\.$/, "");
 }
 
+function getImageExtension(file: File) {
+  if (file.type === "image/png") return "png";
+  if (file.type === "image/webp") return "webp";
+  if (file.type === "image/heic") return "heic";
+  return "jpg";
+}
+
+async function createSignedUrl(imagePath: string) {
+  const { data, error } = await supabase.storage
+    .from(GRAPE_BUCKET)
+    .createSignedUrl(imagePath, 60 * 60);
+
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+async function mapEntriesWithImages(rows: GrapeEntryRow[]) {
+  if (rows.length === 0) return [];
+
+  const { data, error } = await supabase.storage
+    .from(GRAPE_BUCKET)
+    .createSignedUrls(
+      rows.map((row) => row.image_path),
+      60 * 60,
+    );
+
+  if (error) throw error;
+
+  const signedUrlByPath = new Map(
+    data.map((item) => [item.path, item.signedUrl]),
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    grapeIndex: row.grape_index,
+    imagePath: row.image_path,
+    imageUrl: signedUrlByPath.get(row.image_path) ?? "",
+    content: row.content ?? "오늘 포도알 하나 채웠다.",
+    createdAt: formatDate(row.created_at),
+  }));
+}
+
 export default function Home() {
-  const [challenge, setChallenge] = useState(initialChallenge);
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+  const [authDraft, setAuthDraft] = useState({ email: "", password: "" });
+  const [authMessage, setAuthMessage] = useState("");
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+
+  const [challenge, setChallenge] = useState<Challenge | null>(null);
+  const [dataLoading, setDataLoading] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
-  const [detailEntry, setDetailEntry] = useState<GrapeEntry | null>(
-    initialChallenge.entries.at(-1) ?? null,
-  );
-  const [draftTitle, setDraftTitle] = useState(initialChallenge.title);
-  const [draftEntry, setDraftEntry] = useState({ imageUrl: "", content: "" });
+  const [detailEntry, setDetailEntry] = useState<GrapeEntry | null>(null);
+  const [draftTitle, setDraftTitle] = useState("운동 30일");
+  const [draftEntry, setDraftEntry] = useState<{
+    file: File | null;
+    previewUrl: string;
+    content: string;
+  }>({ file: null, previewUrl: "", content: "" });
   const [justAddedIndex, setJustAddedIndex] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [appError, setAppError] = useState("");
 
   const rows = useMemo(
-    () => createGrapeRows(challenge.grapeCount),
-    [challenge.grapeCount],
+    () => createGrapeRows(challenge?.grapeCount ?? 30),
+    [challenge?.grapeCount],
   );
-  const nextGrapeIndex = challenge.entries.length + 1;
-  const complete = challenge.entries.length >= challenge.grapeCount;
+  const nextGrapeIndex = (challenge?.entries.length ?? 0) + 1;
+  const complete = Boolean(
+    challenge && challenge.entries.length >= challenge.grapeCount,
+  );
+
+  async function loadChallenge(currentUser: User) {
+    setDataLoading(true);
+    setAppError("");
+
+    try {
+      const { data: challenges, error: challengeError } = await supabase
+        .from("challenges")
+        .select("*")
+        .eq("user_id", currentUser.id)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (challengeError) throw challengeError;
+
+      const activeChallenge = challenges?.[0] as ChallengeRow | undefined;
+
+      if (!activeChallenge) {
+        setChallenge(null);
+        setDetailEntry(null);
+        return;
+      }
+
+      const { data: entryRows, error: entryError } = await supabase
+        .from("grape_entries")
+        .select("*")
+        .eq("challenge_id", activeChallenge.id)
+        .order("grape_index", { ascending: true });
+
+      if (entryError) throw entryError;
+
+      const entries = await mapEntriesWithImages(
+        (entryRows ?? []) as GrapeEntryRow[],
+      );
+
+      const nextChallenge = {
+        id: activeChallenge.id,
+        title: activeChallenge.title,
+        grapeCount: activeChallenge.grape_count,
+        entries,
+      };
+
+      setChallenge(nextChallenge);
+      setDraftTitle(activeChallenge.title);
+      setDetailEntry(entries.at(-1) ?? null);
+    } catch (error) {
+      setAppError(
+        error instanceof Error
+          ? error.message
+          : "포도송이를 불러오지 못했습니다.",
+      );
+    } finally {
+      setDataLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    let mounted = true;
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
+      const currentUser = data.session?.user ?? null;
+      setUser(currentUser);
+      setAuthLoading(false);
+      if (currentUser) void loadChallenge(currentUser);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      setAuthLoading(false);
+      setChallenge(null);
+      setDetailEntry(null);
+      if (currentUser) void loadChallenge(currentUser);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAuthMessage("");
+    setAuthSubmitting(true);
+
+    try {
+      const email = authDraft.email.trim();
+      const password = authDraft.password;
+
+      const { data, error } =
+        authMode === "signup"
+          ? await supabase.auth.signUp({ email, password })
+          : await supabase.auth.signInWithPassword({ email, password });
+
+      if (error) throw error;
+
+      if (authMode === "signup" && !data.session) {
+        setAuthMessage("가입 확인 메일을 확인한 뒤 다시 로그인하세요.");
+        return;
+      }
+
+      setAuthMessage("");
+    } catch (error) {
+      setAuthMessage(
+        error instanceof Error ? error.message : "인증에 실패했습니다.",
+      );
+    } finally {
+      setAuthSubmitting(false);
+    }
+  }
+
+  async function handleSignOut() {
+    await supabase.auth.signOut();
+    setUser(null);
+    setChallenge(null);
+  }
 
   function openTodayGrape() {
-    if (complete) return;
-    setDraftEntry({ imageUrl: "", content: "" });
+    if (!challenge || complete) return;
+    setDraftEntry({ file: null, previewUrl: "", content: "" });
+    setAppError("");
     setCaptureOpen(true);
   }
 
-  function handleGoalSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleGoalSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!user) return;
 
     const title = draftTitle.trim();
     if (!title) return;
 
-    setChallenge({ title, grapeCount: 30, entries: [] });
-    setDetailEntry(null);
-    setJustAddedIndex(null);
-    setSetupOpen(false);
+    setSaving(true);
+    setAppError("");
+
+    try {
+      const { data, error } = await supabase
+        .from("challenges")
+        .insert({
+          user_id: user.id,
+          title,
+          grape_count: 30,
+        })
+        .select("*")
+        .single();
+
+      if (error) throw error;
+
+      const row = data as ChallengeRow;
+      setChallenge({
+        id: row.id,
+        title: row.title,
+        grapeCount: row.grape_count,
+        entries: [],
+      });
+      setDetailEntry(null);
+      setJustAddedIndex(null);
+      setSetupOpen(false);
+    } catch (error) {
+      setAppError(
+        error instanceof Error ? error.message : "목표를 만들지 못했습니다.",
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    if (draftEntry.previewUrl) {
+      URL.revokeObjectURL(draftEntry.previewUrl);
+    }
+
     setDraftEntry((current) => ({
       ...current,
-      imageUrl: URL.createObjectURL(file),
+      file,
+      previewUrl: URL.createObjectURL(file),
     }));
   }
 
-  function handleEntrySubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleEntrySubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!user || !challenge || nextGrapeIndex > challenge.grapeCount) return;
 
-    if (nextGrapeIndex > challenge.grapeCount) return;
+    if (!draftEntry.file) {
+      setAppError("사진을 먼저 선택하세요.");
+      return;
+    }
 
-    const entry: GrapeEntry = {
-      grapeIndex: nextGrapeIndex,
-      imageUrl:
-        draftEntry.imageUrl ||
-        "https://images.unsplash.com/photo-1528825871115-3581a5387919?auto=format&fit=crop&w=900&q=80",
-      content: draftEntry.content.trim() || "오늘 포도알 하나 채웠다.",
-      createdAt: formatToday(),
-    };
+    setSaving(true);
+    setAppError("");
 
-    setChallenge((current) => ({
-      ...current,
-      entries: [...current.entries, entry],
-    }));
-    setDetailEntry(entry);
-    setJustAddedIndex(entry.grapeIndex);
-    setCaptureOpen(false);
+    try {
+      const imagePath = `${user.id}/${challenge.id}/${nextGrapeIndex}-${Date.now()}.${getImageExtension(draftEntry.file)}`;
+      const { error: uploadError } = await supabase.storage
+        .from(GRAPE_BUCKET)
+        .upload(imagePath, draftEntry.file, {
+          contentType: draftEntry.file.type || "image/jpeg",
+          upsert: false,
+        });
 
-    window.setTimeout(() => setJustAddedIndex(null), 700);
+      if (uploadError) throw uploadError;
+
+      const { data, error } = await supabase
+        .from("grape_entries")
+        .insert({
+          challenge_id: challenge.id,
+          user_id: user.id,
+          grape_index: nextGrapeIndex,
+          image_path: imagePath,
+          content: draftEntry.content.trim() || "오늘 포도알 하나 채웠다.",
+        })
+        .select("*")
+        .single();
+
+      if (error) throw error;
+
+      if (nextGrapeIndex === challenge.grapeCount) {
+        await supabase
+          .from("challenges")
+          .update({ completed_at: new Date().toISOString() })
+          .eq("id", challenge.id);
+      }
+
+      const entryRow = data as GrapeEntryRow;
+      const entry = {
+        id: entryRow.id,
+        grapeIndex: entryRow.grape_index,
+        imagePath: entryRow.image_path,
+        imageUrl: await createSignedUrl(entryRow.image_path),
+        content: entryRow.content ?? "오늘 포도알 하나 채웠다.",
+        createdAt: formatDate(entryRow.created_at),
+      };
+
+      setChallenge((current) =>
+        current
+          ? {
+              ...current,
+              entries: [...current.entries, entry],
+            }
+          : current,
+      );
+      setDetailEntry(entry);
+      setJustAddedIndex(entry.grapeIndex);
+      setDraftEntry({ file: null, previewUrl: "", content: "" });
+      setCaptureOpen(false);
+
+      window.setTimeout(() => setJustAddedIndex(null), 700);
+    } catch (error) {
+      setAppError(
+        error instanceof Error
+          ? error.message
+          : "오늘의 포도알을 저장하지 못했습니다.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (authLoading) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#fff8f3] px-5 text-[#241424]">
+        <p className="text-sm font-black text-[#6f2c83]">포토송이 여는 중</p>
+      </main>
+    );
+  }
+
+  if (!user) {
+    return (
+      <main className="min-h-screen bg-[#fff8f3] px-5 text-[#241424]">
+        <section className="mx-auto flex min-h-screen w-full max-w-[420px] flex-col justify-center">
+          <div className="text-center">
+            <div className="mx-auto grid size-20 place-items-center rounded-full bg-[#6f2c83] text-4xl text-white shadow-[0_16px_32px_rgba(111,44,131,0.22)]">
+              🍇
+            </div>
+            <p className="mt-6 text-sm font-black text-[#7c3a5d]">
+              PhotoSong-i
+            </p>
+            <h1 className="mt-1 text-3xl font-black tracking-normal">
+              포토송이
+            </h1>
+            <p className="mt-3 text-sm font-bold leading-6 text-[#604c5a]">
+              목표를 사진으로 키우세요.
+            </p>
+          </div>
+
+          <form
+            className="mt-8 rounded-[8px] bg-white p-4 shadow-xl"
+            onSubmit={handleAuthSubmit}
+          >
+            <h2 className="text-lg font-black">
+              {authMode === "signin" ? "로그인" : "회원가입"}
+            </h2>
+            <label className="mt-4 block text-sm font-bold text-[#604c5a]">
+              이메일
+              <input
+                className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
+                onChange={(event) =>
+                  setAuthDraft((current) => ({
+                    ...current,
+                    email: event.target.value,
+                  }))
+                }
+                required
+                type="email"
+                value={authDraft.email}
+              />
+            </label>
+            <label className="mt-3 block text-sm font-bold text-[#604c5a]">
+              비밀번호
+              <input
+                className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
+                minLength={6}
+                onChange={(event) =>
+                  setAuthDraft((current) => ({
+                    ...current,
+                    password: event.target.value,
+                  }))
+                }
+                required
+                type="password"
+                value={authDraft.password}
+              />
+            </label>
+
+            {authMessage ? (
+              <p className="mt-3 rounded-[8px] bg-[#fff8f3] p-3 text-sm font-bold leading-5 text-[#6f2c83]">
+                {authMessage}
+              </p>
+            ) : null}
+
+            <button
+              className="mt-4 h-12 w-full rounded-[8px] bg-[#6f2c83] text-sm font-black text-white disabled:bg-[#b6a6bd]"
+              disabled={authSubmitting}
+              type="submit"
+            >
+              {authSubmitting
+                ? "처리 중"
+                : authMode === "signin"
+                  ? "시작하기"
+                  : "가입하기"}
+            </button>
+
+            <button
+              className="mt-3 h-10 w-full text-sm font-black text-[#6f2c83]"
+              onClick={() => {
+                setAuthMode((current) =>
+                  current === "signin" ? "signup" : "signin",
+                );
+                setAuthMessage("");
+              }}
+              type="button"
+            >
+              {authMode === "signin"
+                ? "처음이라면 회원가입"
+                : "이미 계정이 있다면 로그인"}
+            </button>
+          </form>
+        </section>
+      </main>
+    );
+  }
+
+  if (dataLoading) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#fff8f3] px-5 text-[#241424]">
+        <p className="text-sm font-black text-[#6f2c83]">
+          내 포도송이 불러오는 중
+        </p>
+      </main>
+    );
+  }
+
+  if (!challenge) {
+    return (
+      <main className="min-h-screen bg-[#fff8f3] px-5 text-[#241424]">
+        <section className="mx-auto flex min-h-screen w-full max-w-[420px] flex-col justify-center">
+          <div className="text-center">
+            <p className="text-sm font-black text-[#7c3a5d]">PhotoSong-i</p>
+            <h1 className="mt-1 text-3xl font-black tracking-normal">
+              목표 만들기
+            </h1>
+          </div>
+
+          <form
+            className="mt-8 rounded-[8px] bg-white p-4 shadow-xl"
+            onSubmit={handleGoalSubmit}
+          >
+            <label className="block text-sm font-bold text-[#604c5a]">
+              목표
+              <input
+                className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
+                onChange={(event) => setDraftTitle(event.target.value)}
+                placeholder="운동 30일"
+                required
+                value={draftTitle}
+              />
+            </label>
+            {appError ? (
+              <p className="mt-3 rounded-[8px] bg-[#fff2f2] p-3 text-sm font-bold leading-5 text-[#a33535]">
+                {appError}
+              </p>
+            ) : null}
+            <button
+              className="mt-4 h-12 w-full rounded-[8px] bg-[#6f2c83] text-sm font-black text-white disabled:bg-[#b6a6bd]"
+              disabled={saving}
+              type="submit"
+            >
+              {saving ? "만드는 중" : "시작"}
+            </button>
+            <button
+              className="mt-3 h-10 w-full text-sm font-black text-[#6f2c83]"
+              onClick={handleSignOut}
+              type="button"
+            >
+              로그아웃
+            </button>
+          </form>
+        </section>
+      </main>
+    );
   }
 
   return (
@@ -144,10 +568,20 @@ export default function Home() {
             </span>
           </button>
 
-          <div className="rounded-full bg-white px-3 py-2 text-sm font-black text-[#6f2c83] shadow-sm">
+          <button
+            className="rounded-full bg-white px-3 py-2 text-sm font-black text-[#6f2c83] shadow-sm"
+            onClick={handleSignOut}
+            type="button"
+          >
             {challenge.entries.length}/{challenge.grapeCount}
-          </div>
+          </button>
         </header>
+
+        {appError ? (
+          <p className="mt-4 rounded-[8px] bg-[#fff2f2] p-3 text-sm font-bold leading-5 text-[#a33535]">
+            {appError}
+          </p>
+        ) : null}
 
         <section className="flex flex-1 flex-col justify-center py-8">
           <div className="relative mx-auto w-full max-w-[380px]">
@@ -225,7 +659,7 @@ export default function Home() {
 
         <button
           className="h-14 w-full rounded-[8px] bg-[#6f2c83] text-base font-black text-white shadow-[0_16px_28px_rgba(111,44,131,0.24)] transition active:scale-[0.99] disabled:bg-[#b6a6bd]"
-          disabled={complete}
+          disabled={complete || saving}
           onClick={openTodayGrape}
           type="button"
         >
@@ -245,6 +679,7 @@ export default function Home() {
                   className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
                   onChange={(event) => setDraftTitle(event.target.value)}
                   placeholder="운동 30일"
+                  required
                   value={draftTitle}
                 />
               </label>
@@ -257,7 +692,8 @@ export default function Home() {
                   닫기
                 </button>
                 <button
-                  className="h-12 rounded-[8px] bg-[#6f2c83] text-sm font-black text-white"
+                  className="h-12 rounded-[8px] bg-[#6f2c83] text-sm font-black text-white disabled:bg-[#b6a6bd]"
+                  disabled={saving}
                   type="submit"
                 >
                   시작
@@ -278,12 +714,12 @@ export default function Home() {
               </h2>
 
               <label className="mt-4 grid aspect-[4/3] w-full cursor-pointer place-items-center overflow-hidden rounded-[8px] border border-dashed border-[#b88ac8] bg-[#fff8f3] text-sm font-black text-[#6f2c83]">
-                {draftEntry.imageUrl ? (
+                {draftEntry.previewUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     alt="오늘의 포도알 사진"
                     className="h-full w-full object-cover"
-                    src={draftEntry.imageUrl}
+                    src={draftEntry.previewUrl}
                   />
                 ) : (
                   <span>사진 *</span>
@@ -293,6 +729,7 @@ export default function Home() {
                   capture="environment"
                   className="sr-only"
                   onChange={handleImageChange}
+                  required
                   type="file"
                 />
               </label>
@@ -321,10 +758,11 @@ export default function Home() {
                   닫기
                 </button>
                 <button
-                  className="h-12 rounded-[8px] bg-[#6f2c83] text-sm font-black text-white"
+                  className="h-12 rounded-[8px] bg-[#6f2c83] text-sm font-black text-white disabled:bg-[#b6a6bd]"
+                  disabled={saving}
                   type="submit"
                 >
-                  등록
+                  {saving ? "저장 중" : "등록"}
                 </button>
               </div>
             </form>
