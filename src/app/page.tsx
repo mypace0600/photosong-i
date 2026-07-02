@@ -218,7 +218,13 @@ export default function Home() {
 
       const { data, error } =
         authMode === "signup"
-          ? await supabase.auth.signUp({ email, password })
+          ? await supabase.auth.signUp({
+              email,
+              password,
+              options: {
+                emailRedirectTo: window.location.origin,
+              },
+            })
           : await supabase.auth.signInWithPassword({ email, password });
 
       if (error) throw error;
