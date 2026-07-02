@@ -844,26 +844,49 @@ export default function Home() {
                 {nextGrapeIndex}번째 포도알
               </h2>
 
-              <label className="mt-4 grid aspect-[4/3] w-full cursor-pointer place-items-center overflow-hidden rounded-[8px] border border-dashed border-[#b88ac8] bg-[#fff8f3] text-sm font-black text-[#6f2c83]">
-                {draftEntry.previewUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    alt="오늘의 포도알 사진"
-                    className="h-full w-full object-cover"
-                    src={draftEntry.previewUrl}
+              <div className="mt-4">
+                <label className="grid aspect-[4/3] w-full cursor-pointer place-items-center overflow-hidden rounded-[8px] border border-dashed border-[#b88ac8] bg-[#fff8f3] text-sm font-black text-[#6f2c83]">
+                  {draftEntry.previewUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      alt="오늘의 포도알 사진"
+                      className="h-full w-full object-cover"
+                      src={draftEntry.previewUrl}
+                    />
+                  ) : (
+                    <span>사진 *</span>
+                  )}
+                  <input
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={handleImageChange}
+                    required={!draftEntry.file}
+                    type="file"
                   />
-                ) : (
-                  <span>사진 *</span>
-                )}
-                <input
-                  accept="image/*"
-                  capture="environment"
-                  className="sr-only"
-                  onChange={handleImageChange}
-                  required
-                  type="file"
-                />
-              </label>
+                </label>
+
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <label className="grid h-11 cursor-pointer place-items-center rounded-[8px] bg-[#eee7eb] text-sm font-black text-[#4c3f47]">
+                    사진 찍기
+                    <input
+                      accept="image/*"
+                      capture="environment"
+                      className="sr-only"
+                      onChange={handleImageChange}
+                      type="file"
+                    />
+                  </label>
+                  <label className="grid h-11 cursor-pointer place-items-center rounded-[8px] bg-[#fff8f3] text-sm font-black text-[#6f2c83] shadow-sm">
+                    앨범에서 선택
+                    <input
+                      accept="image/*"
+                      className="sr-only"
+                      onChange={handleImageChange}
+                      type="file"
+                    />
+                  </label>
+                </div>
+              </div>
 
               <label className="mt-4 block text-sm font-bold text-[#604c5a]">
                 한 줄
