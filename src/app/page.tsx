@@ -110,6 +110,7 @@ export default function Home() {
   const [captureOpen, setCaptureOpen] = useState(false);
   const [detailEntry, setDetailEntry] = useState<GrapeEntry | null>(null);
   const [draftTitle, setDraftTitle] = useState("운동 30일");
+  const [draftGrapeCount, setDraftGrapeCount] = useState(30);
   const [draftEntry, setDraftEntry] = useState<{
     file: File | null;
     previewUrl: string;
@@ -171,6 +172,7 @@ export default function Home() {
 
       setChallenge(nextChallenge);
       setDraftTitle(activeChallenge.title);
+      setDraftGrapeCount(activeChallenge.grape_count);
       setDetailEntry(entries.at(-1) ?? null);
     } catch (error) {
       setAppError(
@@ -323,6 +325,7 @@ export default function Home() {
 
     const title = draftTitle.trim();
     if (!title) return;
+    const grapeCount = Math.max(1, Math.min(100, draftGrapeCount));
 
     setSaving(true);
     setAppError("");
@@ -333,7 +336,7 @@ export default function Home() {
         .insert({
           user_id: user.id,
           title,
-          grape_count: 30,
+          grape_count: grapeCount,
         })
         .select("*")
         .single();
@@ -624,6 +627,21 @@ export default function Home() {
                 value={draftTitle}
               />
             </label>
+            <label className="mt-4 block text-sm font-bold text-[#604c5a]">
+              도전 일수
+              <input
+                className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
+                inputMode="numeric"
+                max={100}
+                min={1}
+                onChange={(event) =>
+                  setDraftGrapeCount(Number(event.target.value))
+                }
+                required
+                type="number"
+                value={draftGrapeCount}
+              />
+            </label>
             {appError ? (
               <p className="mt-3 rounded-[8px] bg-[#fff2f2] p-3 text-sm font-bold leading-5 text-[#a33535]">
                 {appError}
@@ -779,6 +797,21 @@ export default function Home() {
                   placeholder="운동 30일"
                   required
                   value={draftTitle}
+                />
+              </label>
+              <label className="mt-4 block text-sm font-bold text-[#604c5a]">
+                도전 일수
+                <input
+                  className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
+                  inputMode="numeric"
+                  max={100}
+                  min={1}
+                  onChange={(event) =>
+                    setDraftGrapeCount(Number(event.target.value))
+                  }
+                  required
+                  type="number"
+                  value={draftGrapeCount}
                 />
               </label>
               <div className="mt-4 grid grid-cols-2 gap-2">
