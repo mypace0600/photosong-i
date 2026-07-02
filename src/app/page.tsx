@@ -277,6 +277,29 @@ export default function Home() {
     }
   }
 
+  async function handleOAuthSignIn(provider: "google" | "apple") {
+    setAuthMessage("");
+    setAuthSubmitting(true);
+
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: window.location.origin,
+        },
+      });
+
+      if (error) throw error;
+    } catch (error) {
+      setAuthSubmitting(false);
+      setAuthMessage(
+        error instanceof Error
+          ? error.message
+          : "소셜 로그인을 시작하지 못했습니다.",
+      );
+    }
+  }
+
   async function handleSignOut() {
     await supabase.auth.signOut();
     setUser(null);
@@ -460,6 +483,34 @@ export default function Home() {
             <h2 className="text-lg font-black">
               {authMode === "signin" ? "로그인" : "회원가입"}
             </h2>
+
+            <div className="mt-4 grid gap-2">
+              <button
+                className="flex h-12 items-center justify-center rounded-[8px] border border-[#dec9c0] bg-white text-sm font-black text-[#241424] shadow-sm disabled:text-[#9b8ca2]"
+                disabled={authSubmitting}
+                onClick={() => handleOAuthSignIn("google")}
+                type="button"
+              >
+                Google로 계속하기
+              </button>
+              <button
+                className="flex h-12 items-center justify-center rounded-[8px] bg-[#19151a] text-sm font-black text-white shadow-sm disabled:bg-[#9b8ca2]"
+                disabled={authSubmitting}
+                onClick={() => handleOAuthSignIn("apple")}
+                type="button"
+              >
+                Apple로 계속하기
+              </button>
+            </div>
+
+            <div className="my-5 flex items-center gap-3">
+              <span className="h-px flex-1 bg-[#ead8d0]" />
+              <span className="text-xs font-black text-[#9a8793]">
+                이메일로 계속하기
+              </span>
+              <span className="h-px flex-1 bg-[#ead8d0]" />
+            </div>
+
             <label className="mt-4 block text-sm font-bold text-[#604c5a]">
               이메일
               <input
