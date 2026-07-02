@@ -244,6 +244,39 @@ export default function Home() {
     }
   }
 
+  async function handleResendConfirmation() {
+    const email = authDraft.email.trim();
+    if (!email) {
+      setAuthMessage("이메일을 입력한 뒤 다시 보내기를 눌러주세요.");
+      return;
+    }
+
+    setAuthSubmitting(true);
+    setAuthMessage("");
+
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email,
+        options: {
+          emailRedirectTo: window.location.origin,
+        },
+      });
+
+      if (error) throw error;
+
+      setAuthMessage("확인 메일을 다시 보냈습니다. 메일함을 확인하세요.");
+    } catch (error) {
+      setAuthMessage(
+        error instanceof Error
+          ? error.message
+          : "확인 메일을 다시 보내지 못했습니다.",
+      );
+    } finally {
+      setAuthSubmitting(false);
+    }
+  }
+
   async function handleSignOut() {
     await supabase.auth.signOut();
     setUser(null);
@@ -460,9 +493,21 @@ export default function Home() {
             </label>
 
             {authMessage ? (
-              <p className="mt-3 rounded-[8px] bg-[#fff8f3] p-3 text-sm font-bold leading-5 text-[#6f2c83]">
-                {authMessage}
-              </p>
+              <div className="mt-3 rounded-[8px] bg-[#fff8f3] p-3">
+                <p className="text-sm font-bold leading-5 text-[#6f2c83]">
+                  {authMessage}
+                </p>
+                {authMode === "signup" ? (
+                  <button
+                    className="mt-3 h-10 w-full rounded-[8px] bg-white text-sm font-black text-[#6f2c83] shadow-sm disabled:text-[#9b8ca2]"
+                    disabled={authSubmitting}
+                    onClick={handleResendConfirmation}
+                    type="button"
+                  >
+                    확인 메일 다시 보내기
+                  </button>
+                ) : null}
+              </div>
             ) : null}
 
             <button
