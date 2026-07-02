@@ -277,13 +277,13 @@ export default function Home() {
     }
   }
 
-  async function handleOAuthSignIn(provider: "google" | "apple") {
+  async function handleGoogleSignIn() {
     setAuthMessage("");
     setAuthSubmitting(true);
 
     try {
       const { error } = await supabase.auth.signInWithOAuth({
-        provider,
+        provider: "google",
         options: {
           redirectTo: window.location.origin,
         },
@@ -488,18 +488,10 @@ export default function Home() {
               <button
                 className="flex h-12 items-center justify-center rounded-[8px] border border-[#dec9c0] bg-white text-sm font-black text-[#241424] shadow-sm disabled:text-[#9b8ca2]"
                 disabled={authSubmitting}
-                onClick={() => handleOAuthSignIn("google")}
+                onClick={handleGoogleSignIn}
                 type="button"
               >
                 Google로 계속하기
-              </button>
-              <button
-                className="flex h-12 items-center justify-center rounded-[8px] bg-[#19151a] text-sm font-black text-white shadow-sm disabled:bg-[#9b8ca2]"
-                disabled={authSubmitting}
-                onClick={() => handleOAuthSignIn("apple")}
-                type="button"
-              >
-                Apple로 계속하기
               </button>
             </div>
 

@@ -33,13 +33,40 @@ supabase/migrations/001_initial_schema.sql
 
 ## 3. Auth 설정
 
-MVP는 이메일/비밀번호 로그인을 사용합니다.
+MVP는 Google 로그인을 우선 사용하고, 이메일/비밀번호 로그인을 보조로 둡니다.
 
 Supabase Dashboard에서 확인할 항목:
 
 - Authentication > Providers > Email 활성화
 - 로컬 테스트 중 이메일 확인을 생략하려면 Confirm email 옵션 비활성화
 - 이메일 확인을 켜둘 경우 가입 후 확인 메일을 눌러야 로그인 가능
+
+### Google 로그인
+
+Supabase Dashboard:
+
+```text
+Authentication > Providers > Google
+```
+
+Google provider를 활성화하고 Google Cloud에서 발급한 Client ID와 Client Secret을 입력합니다.
+
+Google Cloud OAuth Client의 Authorized redirect URI:
+
+```text
+https://icsuxoxpknfcfhfhjjwr.supabase.co/auth/v1/callback
+```
+
+Supabase URL Configuration:
+
+```text
+Site URL:
+https://photosong-i.vercel.app
+
+Redirect URLs:
+https://photosong-i.vercel.app/**
+http://localhost:3000/**
+```
 
 ## 4. Vercel 배포
 
