@@ -684,13 +684,18 @@ export default function Home() {
             </span>
           </button>
 
-          <button
-            className="rounded-full bg-white px-3 py-2 text-sm font-black text-[#6f2c83] shadow-sm"
-            onClick={handleSignOut}
-            type="button"
-          >
-            {challenge.entries.length}/{challenge.grapeCount}
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="rounded-full bg-white px-3 py-2 text-sm font-black text-[#6f2c83] shadow-sm">
+              {challenge.entries.length}/{challenge.grapeCount}
+            </div>
+            <button
+              className="h-9 rounded-full bg-[#eee7eb] px-3 text-xs font-black text-[#604c5a] shadow-sm"
+              onClick={handleSignOut}
+              type="button"
+            >
+              로그아웃
+            </button>
+          </div>
         </header>
 
         {appError ? (
