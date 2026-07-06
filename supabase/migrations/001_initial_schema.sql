@@ -16,6 +16,7 @@ create table if not exists public.grape_entries (
   grape_index integer not null check (grape_index > 0),
   image_path text not null,
   content text,
+  event_date date not null default current_date,
   created_at timestamptz not null default now(),
   unique (challenge_id, grape_index)
 );

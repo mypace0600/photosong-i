@@ -11,6 +11,7 @@ type GrapeEntry = {
   imagePath: string;
   imageUrl: string;
   content: string;
+  eventDate: string;
   createdAt: string;
 };
 
@@ -62,6 +63,10 @@ function formatDate(value: string) {
     .replace(/\.$/, "");
 }
 
+function formatDateInput(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
 function getImageExtension(file: File) {
   if (file.type === "image/png") return "png";
   if (file.type === "image/webp") return "webp";
@@ -100,6 +105,7 @@ async function mapEntriesWithImages(rows: GrapeEntryRow[]) {
     imagePath: row.image_path,
     imageUrl: signedUrlByPath.get(row.image_path) ?? "",
     content: row.content ?? "오늘 포도알 하나 채웠다.",
+    eventDate: row.event_date,
     createdAt: formatDate(row.created_at),
   }));
 }
@@ -131,7 +137,13 @@ export default function Home() {
     file: File | null;
     previewUrl: string;
     content: string;
-  }>({ file: null, previewUrl: "", content: "" });
+    eventDate: string;
+  }>({
+    file: null,
+    previewUrl: "",
+    content: "",
+    eventDate: formatDateInput(new Date()),
+  });
   const [justAddedIndex, setJustAddedIndex] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [appError, setAppError] = useState("");
@@ -389,7 +401,12 @@ export default function Home() {
 
   function openTodayGrape() {
     if (!challenge || complete) return;
-    setDraftEntry({ file: null, previewUrl: "", content: "" });
+    setDraftEntry({
+      file: null,
+      previewUrl: "",
+      content: "",
+      eventDate: formatDateInput(new Date()),
+    });
     setAppError("");
     setCaptureOpen(true);
   }
@@ -400,6 +417,7 @@ export default function Home() {
       file: null,
       previewUrl: entry.imageUrl,
       content: entry.content,
+      eventDate: entry.eventDate,
     });
     setAppError("");
     setEntryEditOpen(true);
@@ -624,6 +642,7 @@ export default function Home() {
           grape_index: nextGrapeIndex,
           image_path: imagePath,
           content: draftEntry.content.trim() || "오늘 포도알 하나 채웠다.",
+          event_date: draftEntry.eventDate,
         })
         .select("*")
         .single();
@@ -644,6 +663,7 @@ export default function Home() {
         imagePath: entryRow.image_path,
         imageUrl: await createSignedUrl(entryRow.image_path),
         content: entryRow.content ?? "오늘 포도알 하나 채웠다.",
+        eventDate: entryRow.event_date,
         createdAt: formatDate(entryRow.created_at),
       };
 
@@ -664,7 +684,12 @@ export default function Home() {
       );
       setDetailEntry(entry);
       setJustAddedIndex(entry.grapeIndex);
-      setDraftEntry({ file: null, previewUrl: "", content: "" });
+      setDraftEntry({
+        file: null,
+        previewUrl: "",
+        content: "",
+        eventDate: formatDateInput(new Date()),
+      });
       setCaptureOpen(false);
 
       window.setTimeout(() => setJustAddedIndex(null), 700);
@@ -706,6 +731,7 @@ export default function Home() {
         .update({
           image_path: nextImagePath,
           content: draftEntry.content.trim() || "오늘 포도알 하나 채웠다.",
+          event_date: draftEntry.eventDate,
         })
         .eq("id", editingEntry.id)
         .eq("user_id", user.id)
@@ -725,6 +751,7 @@ export default function Home() {
         imagePath: entryRow.image_path,
         imageUrl: await createSignedUrl(entryRow.image_path),
         content: entryRow.content ?? "오늘 포도알 하나 채웠다.",
+        eventDate: entryRow.event_date,
         createdAt: formatDate(entryRow.created_at),
       };
 
@@ -741,7 +768,12 @@ export default function Home() {
       setDetailEntry(updatedEntry);
       setEditingEntry(null);
       setEntryEditOpen(false);
-      setDraftEntry({ file: null, previewUrl: "", content: "" });
+      setDraftEntry({
+        file: null,
+        previewUrl: "",
+        content: "",
+        eventDate: formatDateInput(new Date()),
+      });
     } catch (error) {
       setAppError(
         error instanceof Error
@@ -1377,6 +1409,22 @@ export default function Home() {
               </div>
 
               <label className="mt-4 block text-sm font-bold text-[#604c5a]">
+                사건 날짜
+                <input
+                  className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
+                  onChange={(event) =>
+                    setDraftEntry((current) => ({
+                      ...current,
+                      eventDate: event.target.value,
+                    }))
+                  }
+                  required
+                  type="date"
+                  value={draftEntry.eventDate}
+                />
+              </label>
+
+              <label className="mt-4 block text-sm font-bold text-[#604c5a]">
                 한 줄
                 <input
                   className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
@@ -1465,6 +1513,22 @@ export default function Home() {
               </div>
 
               <label className="mt-4 block text-sm font-bold text-[#604c5a]">
+                사건 날짜
+                <input
+                  className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
+                  onChange={(event) =>
+                    setDraftEntry((current) => ({
+                      ...current,
+                      eventDate: event.target.value,
+                    }))
+                  }
+                  required
+                  type="date"
+                  value={draftEntry.eventDate}
+                />
+              </label>
+
+              <label className="mt-4 block text-sm font-bold text-[#604c5a]">
                 한 줄
                 <input
                   className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
@@ -1485,7 +1549,12 @@ export default function Home() {
                   onClick={() => {
                     setEntryEditOpen(false);
                     setEditingEntry(null);
-                    setDraftEntry({ file: null, previewUrl: "", content: "" });
+                    setDraftEntry({
+                      file: null,
+                      previewUrl: "",
+                      content: "",
+                      eventDate: formatDateInput(new Date()),
+                    });
                   }}
                   type="button"
                 >
@@ -1536,9 +1605,10 @@ export default function Home() {
                 <p className="mt-2 text-base font-bold leading-6">
                   {detailEntry.content}
                 </p>
-                <p className="mt-2 text-xs font-bold text-[#86717f]">
-                  {detailEntry.createdAt}
-                </p>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-bold text-[#86717f]">
+                  <p>사건 날짜 {formatDate(detailEntry.eventDate)}</p>
+                  <p>등록일 {detailEntry.createdAt}</p>
+                </div>
               </div>
             </article>
           </div>
