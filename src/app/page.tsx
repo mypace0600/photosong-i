@@ -122,6 +122,8 @@ export default function Home() {
     null,
   );
   const [captureOpen, setCaptureOpen] = useState(false);
+  const [entryEditOpen, setEntryEditOpen] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<GrapeEntry | null>(null);
   const [detailEntry, setDetailEntry] = useState<GrapeEntry | null>(null);
   const [draftTitle, setDraftTitle] = useState("운동 30일");
   const [draftGrapeCount, setDraftGrapeCount] = useState(30);
@@ -381,6 +383,8 @@ export default function Home() {
     setChallenge(null);
     setSetupOpen(false);
     setEditingChallengeId(null);
+    setEntryEditOpen(false);
+    setEditingEntry(null);
   }
 
   function openTodayGrape() {
@@ -388,6 +392,17 @@ export default function Home() {
     setDraftEntry({ file: null, previewUrl: "", content: "" });
     setAppError("");
     setCaptureOpen(true);
+  }
+
+  function openEntryEdit(entry: GrapeEntry) {
+    setEditingEntry(entry);
+    setDraftEntry({
+      file: null,
+      previewUrl: entry.imageUrl,
+      content: entry.content,
+    });
+    setAppError("");
+    setEntryEditOpen(true);
   }
 
   function openCreateGoal() {
@@ -658,6 +673,80 @@ export default function Home() {
         error instanceof Error
           ? error.message
           : "오늘의 포도알을 저장하지 못했습니다.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleEntryUpdate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!user || !challenge || !editingEntry) return;
+
+    setSaving(true);
+    setAppError("");
+
+    try {
+      let nextImagePath = editingEntry.imagePath;
+
+      if (draftEntry.file) {
+        nextImagePath = `${user.id}/${challenge.id}/${editingEntry.grapeIndex}-${Date.now()}.${getImageExtension(draftEntry.file)}`;
+        const { error: uploadError } = await supabase.storage
+          .from(GRAPE_BUCKET)
+          .upload(nextImagePath, draftEntry.file, {
+            contentType: draftEntry.file.type || "image/jpeg",
+            upsert: false,
+          });
+
+        if (uploadError) throw uploadError;
+      }
+
+      const { data, error } = await supabase
+        .from("grape_entries")
+        .update({
+          image_path: nextImagePath,
+          content: draftEntry.content.trim() || "오늘 포도알 하나 채웠다.",
+        })
+        .eq("id", editingEntry.id)
+        .eq("user_id", user.id)
+        .select("*")
+        .single();
+
+      if (error) throw error;
+
+      if (draftEntry.file && nextImagePath !== editingEntry.imagePath) {
+        await supabase.storage.from(GRAPE_BUCKET).remove([editingEntry.imagePath]);
+      }
+
+      const entryRow = data as GrapeEntryRow;
+      const updatedEntry = {
+        id: entryRow.id,
+        grapeIndex: entryRow.grape_index,
+        imagePath: entryRow.image_path,
+        imageUrl: await createSignedUrl(entryRow.image_path),
+        content: entryRow.content ?? "오늘 포도알 하나 채웠다.",
+        createdAt: formatDate(entryRow.created_at),
+      };
+
+      setChallenge((current) =>
+        current
+          ? {
+              ...current,
+              entries: current.entries.map((entry) =>
+                entry.id === updatedEntry.id ? updatedEntry : entry,
+              ),
+            }
+          : current,
+      );
+      setDetailEntry(updatedEntry);
+      setEditingEntry(null);
+      setEntryEditOpen(false);
+      setDraftEntry({ file: null, previewUrl: "", content: "" });
+    } catch (error) {
+      setAppError(
+        error instanceof Error
+          ? error.message
+          : "포도알을 수정하지 못했습니다.",
       );
     } finally {
       setSaving(false);
@@ -1322,16 +1411,117 @@ export default function Home() {
           </div>
         ) : null}
 
+        {entryEditOpen && editingEntry ? (
+          <div className="fixed inset-0 z-20 flex items-end bg-black/35 px-4 pb-4">
+            <form
+              className="mx-auto w-full max-w-[420px] rounded-[8px] bg-white p-4 shadow-2xl"
+              onSubmit={handleEntryUpdate}
+            >
+              <h2 className="text-lg font-black">
+                {editingEntry.grapeIndex}번째 포도알 수정
+              </h2>
+
+              <div className="mt-4">
+                <label className="grid aspect-[4/3] w-full cursor-pointer place-items-center overflow-hidden rounded-[8px] border border-dashed border-[#b88ac8] bg-[#fff8f3] text-sm font-black text-[#6f2c83]">
+                  {draftEntry.previewUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      alt="수정할 포도알 사진"
+                      className="h-full w-full object-cover"
+                      src={draftEntry.previewUrl}
+                    />
+                  ) : (
+                    <span>사진 선택</span>
+                  )}
+                  <input
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={handleImageChange}
+                    type="file"
+                  />
+                </label>
+
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <label className="grid h-11 cursor-pointer place-items-center rounded-[8px] bg-[#eee7eb] text-sm font-black text-[#4c3f47]">
+                    사진 다시 찍기
+                    <input
+                      accept="image/*"
+                      capture="environment"
+                      className="sr-only"
+                      onChange={handleImageChange}
+                      type="file"
+                    />
+                  </label>
+                  <label className="grid h-11 cursor-pointer place-items-center rounded-[8px] bg-[#fff8f3] text-sm font-black text-[#6f2c83] shadow-sm">
+                    앨범에서 교체
+                    <input
+                      accept="image/*"
+                      className="sr-only"
+                      onChange={handleImageChange}
+                      type="file"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <label className="mt-4 block text-sm font-bold text-[#604c5a]">
+                한 줄
+                <input
+                  className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
+                  onChange={(event) =>
+                    setDraftEntry((current) => ({
+                      ...current,
+                      content: event.target.value,
+                    }))
+                  }
+                  placeholder="오늘도 움직였다."
+                  value={draftEntry.content}
+                />
+              </label>
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  className="h-12 rounded-[8px] bg-[#eee7eb] text-sm font-black text-[#4c3f47]"
+                  onClick={() => {
+                    setEntryEditOpen(false);
+                    setEditingEntry(null);
+                    setDraftEntry({ file: null, previewUrl: "", content: "" });
+                  }}
+                  type="button"
+                >
+                  닫기
+                </button>
+                <button
+                  className="h-12 rounded-[8px] bg-[#6f2c83] text-sm font-black text-white disabled:bg-[#b6a6bd]"
+                  disabled={saving}
+                  type="submit"
+                >
+                  {saving ? "저장 중" : "수정"}
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : null}
+
         {detailEntry ? (
           <div className="fixed inset-x-0 bottom-0 z-10 mx-auto max-w-[460px] px-5 pb-[max(96px,env(safe-area-inset-bottom))]">
-            <button
-              aria-label="포도알 상세 닫기"
-              className="mb-2 ml-auto block rounded-full bg-white/95 px-3 py-1 text-xs font-black text-[#604c5a] shadow-sm"
-              onClick={() => setDetailEntry(null)}
-              type="button"
-            >
-              닫기
-            </button>
+            <div className="mb-2 flex justify-end gap-2">
+              <button
+                className="rounded-full bg-white/95 px-3 py-1 text-xs font-black text-[#6f2c83] shadow-sm"
+                onClick={() => openEntryEdit(detailEntry)}
+                type="button"
+              >
+                수정
+              </button>
+              <button
+                aria-label="포도알 상세 닫기"
+                className="rounded-full bg-white/95 px-3 py-1 text-xs font-black text-[#604c5a] shadow-sm"
+                onClick={() => setDetailEntry(null)}
+                type="button"
+              >
+                닫기
+              </button>
+            </div>
             <article className="overflow-hidden rounded-[8px] bg-white shadow-2xl">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
