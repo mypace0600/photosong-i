@@ -21,6 +21,14 @@ type Challenge = {
   entries: GrapeEntry[];
 };
 
+type ChallengeSummary = {
+  id: string;
+  title: string;
+  grapeCount: number;
+  entryCount: number;
+  createdAt: string;
+};
+
 const GRAPE_BUCKET = "grape-photos";
 
 function getAuthRedirectUrl() {
@@ -104,9 +112,15 @@ export default function Home() {
   const [authMessage, setAuthMessage] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
 
+  const [challengeSummaries, setChallengeSummaries] = useState<
+    ChallengeSummary[]
+  >([]);
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [dataLoading, setDataLoading] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [editingChallengeId, setEditingChallengeId] = useState<string | null>(
+    null,
+  );
   const [captureOpen, setCaptureOpen] = useState(false);
   const [detailEntry, setDetailEntry] = useState<GrapeEntry | null>(null);
   const [draftTitle, setDraftTitle] = useState("운동 30일");
@@ -129,7 +143,7 @@ export default function Home() {
     challenge && challenge.entries.length >= challenge.grapeCount,
   );
 
-  async function loadChallenge(currentUser: User) {
+  async function loadChallengeList(currentUser: User) {
     setDataLoading(true);
     setAppError("");
 
@@ -138,41 +152,94 @@ export default function Home() {
         .from("challenges")
         .select("*")
         .eq("user_id", currentUser.id)
-        .order("created_at", { ascending: false })
-        .limit(1);
+        .order("created_at", { ascending: false });
 
       if (challengeError) throw challengeError;
 
-      const activeChallenge = challenges?.[0] as ChallengeRow | undefined;
+      const challengeRows = (challenges ?? []) as ChallengeRow[];
 
-      if (!activeChallenge) {
+      if (challengeRows.length === 0) {
+        setChallengeSummaries([]);
         setChallenge(null);
         setDetailEntry(null);
         return;
       }
 
+      const { data: entryCounts, error: entryCountError } = await supabase
+        .from("grape_entries")
+        .select("challenge_id")
+        .eq("user_id", currentUser.id);
+
+      if (entryCountError) throw entryCountError;
+
+      const countByChallenge = new Map<string, number>();
+      (entryCounts ?? []).forEach((row) => {
+        const challengeId = row.challenge_id as string;
+        countByChallenge.set(
+          challengeId,
+          (countByChallenge.get(challengeId) ?? 0) + 1,
+        );
+      });
+
+      setChallengeSummaries(
+        challengeRows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          grapeCount: row.grape_count,
+          entryCount: countByChallenge.get(row.id) ?? 0,
+          createdAt: formatDate(row.created_at),
+        })),
+      );
+      setChallenge(null);
+      setDetailEntry(null);
+    } catch (error) {
+      setAppError(
+        error instanceof Error
+          ? error.message
+          : "목표 목록을 불러오지 못했습니다.",
+      );
+    } finally {
+      setDataLoading(false);
+    }
+  }
+
+  async function loadChallengeDetail(challengeId: string) {
+    if (!user) return;
+
+    setDataLoading(true);
+    setAppError("");
+
+    try {
+      const { data: challengeRow, error: challengeError } = await supabase
+        .from("challenges")
+        .select("*")
+        .eq("id", challengeId)
+        .eq("user_id", user.id)
+        .single();
+
+      if (challengeError) throw challengeError;
+
       const { data: entryRows, error: entryError } = await supabase
         .from("grape_entries")
         .select("*")
-        .eq("challenge_id", activeChallenge.id)
+        .eq("challenge_id", challengeId)
         .order("grape_index", { ascending: true });
 
       if (entryError) throw entryError;
 
+      const row = challengeRow as ChallengeRow;
       const entries = await mapEntriesWithImages(
         (entryRows ?? []) as GrapeEntryRow[],
       );
 
-      const nextChallenge = {
-        id: activeChallenge.id,
-        title: activeChallenge.title,
-        grapeCount: activeChallenge.grape_count,
+      setChallenge({
+        id: row.id,
+        title: row.title,
+        grapeCount: row.grape_count,
         entries,
-      };
-
-      setChallenge(nextChallenge);
-      setDraftTitle(activeChallenge.title);
-      setDraftGrapeCount(activeChallenge.grape_count);
+      });
+      setDraftTitle(row.title);
+      setDraftGrapeCount(row.grape_count);
       setDetailEntry(entries.at(-1) ?? null);
     } catch (error) {
       setAppError(
@@ -193,7 +260,7 @@ export default function Home() {
       const currentUser = data.session?.user ?? null;
       setUser(currentUser);
       setAuthLoading(false);
-      if (currentUser) void loadChallenge(currentUser);
+      if (currentUser) void loadChallengeList(currentUser);
     });
 
     const {
@@ -202,9 +269,10 @@ export default function Home() {
       const currentUser = session?.user ?? null;
       setUser(currentUser);
       setAuthLoading(false);
+      setChallengeSummaries([]);
       setChallenge(null);
       setDetailEntry(null);
-      if (currentUser) void loadChallenge(currentUser);
+      if (currentUser) void loadChallengeList(currentUser);
     });
 
     return () => {
@@ -309,7 +377,10 @@ export default function Home() {
   async function handleSignOut() {
     await supabase.auth.signOut();
     setUser(null);
+    setChallengeSummaries([]);
     setChallenge(null);
+    setSetupOpen(false);
+    setEditingChallengeId(null);
   }
 
   function openTodayGrape() {
@@ -317,6 +388,22 @@ export default function Home() {
     setDraftEntry({ file: null, previewUrl: "", content: "" });
     setAppError("");
     setCaptureOpen(true);
+  }
+
+  function openCreateGoal() {
+    setEditingChallengeId(null);
+    setDraftTitle("");
+    setDraftGrapeCount(30);
+    setAppError("");
+    setSetupOpen(true);
+  }
+
+  function openEditGoal(summary: ChallengeSummary) {
+    setEditingChallengeId(summary.id);
+    setDraftTitle(summary.title);
+    setDraftGrapeCount(summary.grapeCount);
+    setAppError("");
+    setSetupOpen(true);
   }
 
   async function handleGoalSubmit(event: FormEvent<HTMLFormElement>) {
@@ -331,6 +418,54 @@ export default function Home() {
     setAppError("");
 
     try {
+      if (editingChallengeId) {
+        const currentEntryCount =
+          challenge?.id === editingChallengeId
+            ? challenge.entries.length
+            : (challengeSummaries.find((item) => item.id === editingChallengeId)
+                ?.entryCount ?? 0);
+        const nextGrapeCount = Math.max(grapeCount, currentEntryCount, 1);
+
+        const { data, error } = await supabase
+          .from("challenges")
+          .update({
+            title,
+            grape_count: nextGrapeCount,
+          })
+          .eq("id", editingChallengeId)
+          .eq("user_id", user.id)
+          .select("*")
+          .single();
+
+        if (error) throw error;
+
+        const row = data as ChallengeRow;
+        setChallengeSummaries((current) =>
+          current.map((item) =>
+            item.id === row.id
+              ? {
+                  ...item,
+                  title: row.title,
+                  grapeCount: row.grape_count,
+                }
+              : item,
+          ),
+        );
+        setChallenge((current) =>
+          current && current.id === row.id
+            ? {
+                ...current,
+                title: row.title,
+                grapeCount: row.grape_count,
+              }
+            : current,
+        );
+        setDraftGrapeCount(row.grape_count);
+        setEditingChallengeId(null);
+        setSetupOpen(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from("challenges")
         .insert({
@@ -350,12 +485,78 @@ export default function Home() {
         grapeCount: row.grape_count,
         entries: [],
       });
+      setChallengeSummaries((current) => [
+        {
+          id: row.id,
+          title: row.title,
+          grapeCount: row.grape_count,
+          entryCount: 0,
+          createdAt: formatDate(row.created_at),
+        },
+        ...current,
+      ]);
       setDetailEntry(null);
       setJustAddedIndex(null);
+      setEditingChallengeId(null);
       setSetupOpen(false);
     } catch (error) {
       setAppError(
         error instanceof Error ? error.message : "목표를 만들지 못했습니다.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteChallenge(challengeId: string) {
+    if (!user || saving) return;
+    const ok = window.confirm("이 목표와 포도알 기록을 삭제할까요?");
+    if (!ok) return;
+
+    setSaving(true);
+    setAppError("");
+
+    try {
+      const { data: entryRows, error: entryError } = await supabase
+        .from("grape_entries")
+        .select("image_path")
+        .eq("challenge_id", challengeId)
+        .eq("user_id", user.id);
+
+      if (entryError) throw entryError;
+
+      const imagePaths = (entryRows ?? [])
+        .map((row) => row.image_path as string)
+        .filter(Boolean);
+
+      if (imagePaths.length > 0) {
+        const { error: storageError } = await supabase.storage
+          .from(GRAPE_BUCKET)
+          .remove(imagePaths);
+
+        if (storageError) throw storageError;
+      }
+
+      const { error: deleteError } = await supabase
+        .from("challenges")
+        .delete()
+        .eq("id", challengeId)
+        .eq("user_id", user.id);
+
+      if (deleteError) throw deleteError;
+
+      setChallengeSummaries((current) =>
+        current.filter((item) => item.id !== challengeId),
+      );
+      if (challenge?.id === challengeId) {
+        setChallenge(null);
+        setDetailEntry(null);
+      }
+      setSetupOpen(false);
+      setEditingChallengeId(null);
+    } catch (error) {
+      setAppError(
+        error instanceof Error ? error.message : "목표를 삭제하지 못했습니다.",
       );
     } finally {
       setSaving(false);
@@ -438,6 +639,13 @@ export default function Home() {
               entries: [...current.entries, entry],
             }
           : current,
+      );
+      setChallengeSummaries((current) =>
+        current.map((item) =>
+          item.id === challenge.id
+            ? { ...item, entryCount: item.entryCount + 1 }
+            : item,
+        ),
       );
       setDetailEntry(entry);
       setJustAddedIndex(entry.grapeIndex);
@@ -602,6 +810,159 @@ export default function Home() {
     );
   }
 
+  if (!challenge && challengeSummaries.length > 0) {
+    return (
+      <main className="min-h-screen bg-[#fff8f3] px-5 text-[#241424]">
+        <section className="mx-auto flex min-h-screen w-full max-w-[460px] flex-col py-6">
+          <header className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-black text-[#7c3a5d]">PhotoSong-i</p>
+              <h1 className="mt-1 text-3xl font-black tracking-normal">
+                목표 목록
+              </h1>
+            </div>
+            <button
+              className="h-9 rounded-full bg-[#eee7eb] px-3 text-xs font-black text-[#604c5a] shadow-sm"
+              onClick={handleSignOut}
+              type="button"
+            >
+              로그아웃
+            </button>
+          </header>
+
+          {appError ? (
+            <p className="mt-4 rounded-[8px] bg-[#fff2f2] p-3 text-sm font-bold leading-5 text-[#a33535]">
+              {appError}
+            </p>
+          ) : null}
+
+          <div className="mt-6 space-y-3">
+            {challengeSummaries.map((summary) => {
+              const progress = Math.round(
+                (summary.entryCount / summary.grapeCount) * 100,
+              );
+
+              return (
+                <article
+                  className="rounded-[8px] bg-white p-4 shadow-sm"
+                  key={summary.id}
+                >
+                  <button
+                    className="block w-full text-left"
+                    onClick={() => void loadChallengeDetail(summary.id)}
+                    type="button"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h2 className="text-lg font-black">
+                          🍇 {summary.title}
+                        </h2>
+                        <p className="mt-1 text-xs font-bold text-[#86717f]">
+                          {summary.createdAt}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-[#fff8f3] px-3 py-1 text-sm font-black text-[#6f2c83]">
+                        {summary.entryCount}/{summary.grapeCount}
+                      </span>
+                    </div>
+                    <div className="mt-3 h-2 rounded-full bg-[#ead8d0]">
+                      <div
+                        className="h-full rounded-full bg-[#6f2c83]"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </button>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      className="h-10 rounded-[8px] bg-[#eee7eb] text-sm font-black text-[#4c3f47]"
+                      onClick={() => openEditGoal(summary)}
+                      type="button"
+                    >
+                      수정
+                    </button>
+                    <button
+                      className="h-10 rounded-[8px] bg-[#fff2f2] text-sm font-black text-[#a33535]"
+                      disabled={saving}
+                      onClick={() => void handleDeleteChallenge(summary.id)}
+                      type="button"
+                    >
+                      삭제
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          <button
+            className="mt-5 h-12 rounded-[8px] bg-[#6f2c83] text-sm font-black text-white shadow-[0_12px_22px_rgba(111,44,131,0.18)]"
+            onClick={openCreateGoal}
+            type="button"
+          >
+            + 새 목표 만들기
+          </button>
+
+          {setupOpen ? (
+            <div className="fixed inset-0 z-20 flex items-end bg-black/35 px-4 pb-4">
+              <form
+                className="mx-auto w-full max-w-[420px] rounded-[8px] bg-white p-4 shadow-2xl"
+                onSubmit={handleGoalSubmit}
+              >
+                <h2 className="text-lg font-black">
+                  {editingChallengeId ? "목표 수정" : "목표 만들기"}
+                </h2>
+                <label className="mt-4 block text-sm font-bold text-[#604c5a]">
+                  목표
+                  <input
+                    className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
+                    onChange={(event) => setDraftTitle(event.target.value)}
+                    placeholder="운동"
+                    required
+                    value={draftTitle}
+                  />
+                </label>
+                <label className="mt-4 block text-sm font-bold text-[#604c5a]">
+                  도전 일수
+                  <input
+                    className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
+                    inputMode="numeric"
+                    max={100}
+                    min={1}
+                    onChange={(event) =>
+                      setDraftGrapeCount(Number(event.target.value))
+                    }
+                    required
+                    type="number"
+                    value={draftGrapeCount}
+                  />
+                </label>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button
+                    className="h-12 rounded-[8px] bg-[#eee7eb] text-sm font-black text-[#4c3f47]"
+                    onClick={() => {
+                      setSetupOpen(false);
+                      setEditingChallengeId(null);
+                    }}
+                    type="button"
+                  >
+                    닫기
+                  </button>
+                  <button
+                    className="h-12 rounded-[8px] bg-[#6f2c83] text-sm font-black text-white disabled:bg-[#b6a6bd]"
+                    disabled={saving}
+                    type="submit"
+                  >
+                    {editingChallengeId ? "수정" : "시작"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          ) : null}
+        </section>
+      </main>
+    );
+  }
+
   if (!challenge) {
     return (
       <main className="min-h-screen bg-[#fff8f3] px-5 text-[#241424]">
@@ -622,7 +983,7 @@ export default function Home() {
               <input
                 className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
                 onChange={(event) => setDraftTitle(event.target.value)}
-                placeholder="운동 30일"
+                placeholder="운동"
                 required
                 value={draftTitle}
               />
@@ -673,7 +1034,15 @@ export default function Home() {
         <header className="flex items-center justify-between">
           <button
             className="h-10 rounded-full px-1 text-left"
-            onClick={() => setSetupOpen(true)}
+            onClick={() =>
+              openEditGoal({
+                id: challenge.id,
+                title: challenge.title,
+                grapeCount: challenge.grapeCount,
+                entryCount: challenge.entries.length,
+                createdAt: "",
+              })
+            }
             type="button"
           >
             <span className="block text-xs font-bold text-[#7c3a5d]">
@@ -688,6 +1057,16 @@ export default function Home() {
             <div className="rounded-full bg-white px-3 py-2 text-sm font-black text-[#6f2c83] shadow-sm">
               {challenge.entries.length}/{challenge.grapeCount}
             </div>
+            <button
+              className="h-9 rounded-full bg-white px-3 text-xs font-black text-[#6f2c83] shadow-sm"
+              onClick={() => {
+                setChallenge(null);
+                setDetailEntry(null);
+              }}
+              type="button"
+            >
+              목록
+            </button>
             <button
               className="h-9 rounded-full bg-[#eee7eb] px-3 text-xs font-black text-[#604c5a] shadow-sm"
               onClick={handleSignOut}
@@ -793,13 +1172,15 @@ export default function Home() {
               className="mx-auto w-full max-w-[420px] rounded-[8px] bg-white p-4 shadow-2xl"
               onSubmit={handleGoalSubmit}
             >
-              <h2 className="text-lg font-black">목표 만들기</h2>
+              <h2 className="text-lg font-black">
+                {editingChallengeId ? "목표 수정" : "목표 만들기"}
+              </h2>
               <label className="mt-4 block text-sm font-bold text-[#604c5a]">
                 목표
                 <input
                   className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
                   onChange={(event) => setDraftTitle(event.target.value)}
-                  placeholder="운동 30일"
+                  placeholder="운동"
                   required
                   value={draftTitle}
                 />
@@ -822,7 +1203,10 @@ export default function Home() {
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <button
                   className="h-12 rounded-[8px] bg-[#eee7eb] text-sm font-black text-[#4c3f47]"
-                  onClick={() => setSetupOpen(false)}
+                  onClick={() => {
+                    setSetupOpen(false);
+                    setEditingChallengeId(null);
+                  }}
                   type="button"
                 >
                   닫기
@@ -832,9 +1216,19 @@ export default function Home() {
                   disabled={saving}
                   type="submit"
                 >
-                  시작
+                  {editingChallengeId ? "수정" : "시작"}
                 </button>
               </div>
+              {editingChallengeId ? (
+                <button
+                  className="mt-2 h-11 w-full rounded-[8px] bg-[#fff2f2] text-sm font-black text-[#a33535]"
+                  disabled={saving}
+                  onClick={() => void handleDeleteChallenge(editingChallengeId)}
+                  type="button"
+                >
+                  삭제
+                </button>
+              ) : null}
             </form>
           </div>
         ) : null}
