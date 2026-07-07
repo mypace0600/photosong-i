@@ -31,6 +31,8 @@ type ChallengeSummary = {
 };
 
 const GRAPE_BUCKET = "grape-photos";
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const DEFAULT_ENTRY_CONTENT = "오늘 포도알 하나 채웠다.";
 
 function getAuthRedirectUrl() {
   return process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
@@ -74,6 +76,22 @@ function getImageExtension(file: File) {
   return "jpg";
 }
 
+function isObjectUrl(value: string) {
+  return value.startsWith("blob:");
+}
+
+function validateImageFile(file: File) {
+  if (file.type && !file.type.startsWith("image/")) {
+    return "이미지 파일만 올릴 수 있습니다.";
+  }
+
+  if (file.size > MAX_IMAGE_BYTES) {
+    return "사진은 5MB 이하로 선택하세요.";
+  }
+
+  return "";
+}
+
 async function createSignedUrl(imagePath: string) {
   const { data, error } = await supabase.storage
     .from(GRAPE_BUCKET)
@@ -104,7 +122,7 @@ async function mapEntriesWithImages(rows: GrapeEntryRow[]) {
     grapeIndex: row.grape_index,
     imagePath: row.image_path,
     imageUrl: signedUrlByPath.get(row.image_path) ?? "",
-    content: row.content ?? "오늘 포도알 하나 채웠다.",
+    content: row.content ?? DEFAULT_ENTRY_CONTENT,
     eventDate: row.event_date,
     createdAt: formatDate(row.created_at),
   }));
@@ -156,6 +174,21 @@ export default function Home() {
   const complete = Boolean(
     challenge && challenge.entries.length >= challenge.grapeCount,
   );
+
+  function clearDraftEntry() {
+    setDraftEntry((current) => {
+      if (isObjectUrl(current.previewUrl)) {
+        URL.revokeObjectURL(current.previewUrl);
+      }
+
+      return {
+        file: null,
+        previewUrl: "",
+        content: "",
+        eventDate: formatDateInput(new Date()),
+      };
+    });
+  }
 
   async function loadChallengeList(currentUser: User) {
     setDataLoading(true);
@@ -297,6 +330,8 @@ export default function Home() {
 
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (authSubmitting) return;
+
     setAuthMessage("");
     setAuthSubmitting(true);
 
@@ -366,6 +401,8 @@ export default function Home() {
   }
 
   async function handleGoogleSignIn() {
+    if (authSubmitting) return;
+
     setAuthMessage("");
     setAuthSubmitting(true);
 
@@ -389,6 +426,8 @@ export default function Home() {
   }
 
   async function handleSignOut() {
+    if (saving || authSubmitting) return;
+
     await supabase.auth.signOut();
     setUser(null);
     setChallengeSummaries([]);
@@ -401,12 +440,7 @@ export default function Home() {
 
   function openTodayGrape() {
     if (!challenge || complete) return;
-    setDraftEntry({
-      file: null,
-      previewUrl: "",
-      content: "",
-      eventDate: formatDateInput(new Date()),
-    });
+    clearDraftEntry();
     setAppError("");
     setCaptureOpen(true);
   }
@@ -441,11 +475,20 @@ export default function Home() {
 
   async function handleGoalSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!user) return;
+    if (!user || saving) return;
 
     const title = draftTitle.trim();
-    if (!title) return;
-    const grapeCount = Math.max(1, Math.min(100, draftGrapeCount));
+    const grapeCount = Number(draftGrapeCount);
+
+    if (!title) {
+      setAppError("목표 이름을 입력하세요.");
+      return;
+    }
+
+    if (!Number.isFinite(grapeCount) || grapeCount < 1 || grapeCount > 100) {
+      setAppError("도전 일수는 1일부터 100일 사이로 입력하세요.");
+      return;
+    }
 
     setSaving(true);
     setAppError("");
@@ -600,10 +643,18 @@ export default function Home() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (draftEntry.previewUrl) {
+    const validationMessage = validateImageFile(file);
+    if (validationMessage) {
+      setAppError(validationMessage);
+      event.target.value = "";
+      return;
+    }
+
+    if (isObjectUrl(draftEntry.previewUrl)) {
       URL.revokeObjectURL(draftEntry.previewUrl);
     }
 
+    setAppError("");
     setDraftEntry((current) => ({
       ...current,
       file,
@@ -613,7 +664,9 @@ export default function Home() {
 
   async function handleEntrySubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!user || !challenge || nextGrapeIndex > challenge.grapeCount) return;
+    if (!user || !challenge || saving || nextGrapeIndex > challenge.grapeCount) {
+      return;
+    }
 
     if (!draftEntry.file) {
       setAppError("사진을 먼저 선택하세요.");
@@ -622,6 +675,8 @@ export default function Home() {
 
     setSaving(true);
     setAppError("");
+
+    let uploadedImagePath = "";
 
     try {
       const imagePath = `${user.id}/${challenge.id}/${nextGrapeIndex}-${Date.now()}.${getImageExtension(draftEntry.file)}`;
@@ -633,6 +688,7 @@ export default function Home() {
         });
 
       if (uploadError) throw uploadError;
+      uploadedImagePath = imagePath;
 
       const { data, error } = await supabase
         .from("grape_entries")
@@ -641,13 +697,14 @@ export default function Home() {
           user_id: user.id,
           grape_index: nextGrapeIndex,
           image_path: imagePath,
-          content: draftEntry.content.trim() || "오늘 포도알 하나 채웠다.",
+          content: draftEntry.content.trim() || DEFAULT_ENTRY_CONTENT,
           event_date: draftEntry.eventDate,
         })
         .select("*")
         .single();
 
       if (error) throw error;
+      uploadedImagePath = "";
 
       if (nextGrapeIndex === challenge.grapeCount) {
         await supabase
@@ -662,7 +719,7 @@ export default function Home() {
         grapeIndex: entryRow.grape_index,
         imagePath: entryRow.image_path,
         imageUrl: await createSignedUrl(entryRow.image_path),
-        content: entryRow.content ?? "오늘 포도알 하나 채웠다.",
+        content: entryRow.content ?? DEFAULT_ENTRY_CONTENT,
         eventDate: entryRow.event_date,
         createdAt: formatDate(entryRow.created_at),
       };
@@ -684,16 +741,15 @@ export default function Home() {
       );
       setDetailEntry(entry);
       setJustAddedIndex(entry.grapeIndex);
-      setDraftEntry({
-        file: null,
-        previewUrl: "",
-        content: "",
-        eventDate: formatDateInput(new Date()),
-      });
+      clearDraftEntry();
       setCaptureOpen(false);
 
       window.setTimeout(() => setJustAddedIndex(null), 700);
     } catch (error) {
+      if (uploadedImagePath) {
+        await supabase.storage.from(GRAPE_BUCKET).remove([uploadedImagePath]);
+      }
+
       setAppError(
         error instanceof Error
           ? error.message
@@ -706,10 +762,12 @@ export default function Home() {
 
   async function handleEntryUpdate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!user || !challenge || !editingEntry) return;
+    if (!user || !challenge || !editingEntry || saving) return;
 
     setSaving(true);
     setAppError("");
+
+    let uploadedImagePath = "";
 
     try {
       let nextImagePath = editingEntry.imagePath;
@@ -724,13 +782,14 @@ export default function Home() {
           });
 
         if (uploadError) throw uploadError;
+        uploadedImagePath = nextImagePath;
       }
 
       const { data, error } = await supabase
         .from("grape_entries")
         .update({
           image_path: nextImagePath,
-          content: draftEntry.content.trim() || "오늘 포도알 하나 채웠다.",
+          content: draftEntry.content.trim() || DEFAULT_ENTRY_CONTENT,
           event_date: draftEntry.eventDate,
         })
         .eq("id", editingEntry.id)
@@ -739,6 +798,7 @@ export default function Home() {
         .single();
 
       if (error) throw error;
+      uploadedImagePath = "";
 
       if (draftEntry.file && nextImagePath !== editingEntry.imagePath) {
         await supabase.storage.from(GRAPE_BUCKET).remove([editingEntry.imagePath]);
@@ -750,7 +810,7 @@ export default function Home() {
         grapeIndex: entryRow.grape_index,
         imagePath: entryRow.image_path,
         imageUrl: await createSignedUrl(entryRow.image_path),
-        content: entryRow.content ?? "오늘 포도알 하나 채웠다.",
+        content: entryRow.content ?? DEFAULT_ENTRY_CONTENT,
         eventDate: entryRow.event_date,
         createdAt: formatDate(entryRow.created_at),
       };
@@ -768,13 +828,12 @@ export default function Home() {
       setDetailEntry(updatedEntry);
       setEditingEntry(null);
       setEntryEditOpen(false);
-      setDraftEntry({
-        file: null,
-        previewUrl: "",
-        content: "",
-        eventDate: formatDateInput(new Date()),
-      });
+      clearDraftEntry();
     } catch (error) {
+      if (uploadedImagePath) {
+        await supabase.storage.from(GRAPE_BUCKET).remove([uploadedImagePath]);
+      }
+
       setAppError(
         error instanceof Error
           ? error.message
@@ -943,7 +1002,8 @@ export default function Home() {
               </h1>
             </div>
             <button
-              className="h-9 rounded-full bg-[#eee7eb] px-3 text-xs font-black text-[#604c5a] shadow-sm"
+              className="h-10 rounded-full bg-[#eee7eb] px-3 text-xs font-black text-[#604c5a] shadow-sm disabled:text-[#a79aa3]"
+              disabled={saving || authSubmitting}
               onClick={handleSignOut}
               type="button"
             >
@@ -975,7 +1035,7 @@ export default function Home() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <h2 className="text-lg font-black">
+                        <h2 className="break-words text-lg font-black leading-6">
                           🍇 {summary.title}
                         </h2>
                         <p className="mt-1 text-xs font-bold text-[#86717f]">
@@ -1036,6 +1096,7 @@ export default function Home() {
                   목표
                   <input
                     className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
+                    maxLength={32}
                     onChange={(event) => setDraftTitle(event.target.value)}
                     placeholder="운동"
                     required
@@ -1060,6 +1121,7 @@ export default function Home() {
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   <button
                     className="h-12 rounded-[8px] bg-[#eee7eb] text-sm font-black text-[#4c3f47]"
+                    disabled={saving}
                     onClick={() => {
                       setSetupOpen(false);
                       setEditingChallengeId(null);
@@ -1073,7 +1135,7 @@ export default function Home() {
                     disabled={saving}
                     type="submit"
                   >
-                    {editingChallengeId ? "수정" : "시작"}
+                    {saving ? "저장 중" : editingChallengeId ? "수정" : "시작"}
                   </button>
                 </div>
               </form>
@@ -1103,6 +1165,7 @@ export default function Home() {
               목표
               <input
                 className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
+                maxLength={32}
                 onChange={(event) => setDraftTitle(event.target.value)}
                 placeholder="운동"
                 required
@@ -1136,10 +1199,11 @@ export default function Home() {
             >
               {saving ? "만드는 중" : "시작"}
             </button>
-            <button
-              className="mt-3 h-10 w-full text-sm font-black text-[#6f2c83]"
-              onClick={handleSignOut}
-              type="button"
+          <button
+            className="mt-3 h-10 w-full text-sm font-black text-[#6f2c83]"
+            disabled={saving}
+            onClick={handleSignOut}
+            type="button"
             >
               로그아웃
             </button>
@@ -1152,9 +1216,9 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-[#fff8f3] text-[#241424]">
       <section className="mx-auto flex min-h-screen w-full max-w-[460px] flex-col px-5 pb-6 pt-[max(24px,env(safe-area-inset-top))]">
-        <header className="flex items-center justify-between">
+        <header className="flex items-center justify-between gap-3">
           <button
-            className="h-10 rounded-full px-1 text-left"
+            className="min-w-0 flex-1 rounded-full px-1 py-1 text-left"
             onClick={() =>
               openEditGoal({
                 id: challenge.id,
@@ -1169,12 +1233,12 @@ export default function Home() {
             <span className="block text-xs font-bold text-[#7c3a5d]">
               PhotoSong-i
             </span>
-            <span className="block text-xl font-black tracking-normal">
+            <span className="block truncate text-xl font-black tracking-normal">
               {challenge.title}
             </span>
           </button>
 
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <div className="rounded-full bg-white px-3 py-2 text-sm font-black text-[#6f2c83] shadow-sm">
               {challenge.entries.length}/{challenge.grapeCount}
             </div>
@@ -1189,7 +1253,8 @@ export default function Home() {
               목록
             </button>
             <button
-              className="h-9 rounded-full bg-[#eee7eb] px-3 text-xs font-black text-[#604c5a] shadow-sm"
+              className="h-9 rounded-full bg-[#eee7eb] px-3 text-xs font-black text-[#604c5a] shadow-sm disabled:text-[#a79aa3]"
+              disabled={saving || authSubmitting}
               onClick={handleSignOut}
               type="button"
             >
@@ -1300,6 +1365,7 @@ export default function Home() {
                 목표
                 <input
                   className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
+                  maxLength={32}
                   onChange={(event) => setDraftTitle(event.target.value)}
                   placeholder="운동"
                   required
@@ -1321,9 +1387,15 @@ export default function Home() {
                   value={draftGrapeCount}
                 />
               </label>
+              {appError ? (
+                <p className="mt-3 rounded-[8px] bg-[#fff2f2] p-3 text-sm font-bold leading-5 text-[#a33535]">
+                  {appError}
+                </p>
+              ) : null}
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <button
                   className="h-12 rounded-[8px] bg-[#eee7eb] text-sm font-black text-[#4c3f47]"
+                  disabled={saving}
                   onClick={() => {
                     setSetupOpen(false);
                     setEditingChallengeId(null);
@@ -1337,7 +1409,7 @@ export default function Home() {
                   disabled={saving}
                   type="submit"
                 >
-                  {editingChallengeId ? "수정" : "시작"}
+                  {saving ? "저장 중" : editingChallengeId ? "수정" : "시작"}
                 </button>
               </div>
               {editingChallengeId ? (
@@ -1428,6 +1500,7 @@ export default function Home() {
                 한 줄
                 <input
                   className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
+                  maxLength={60}
                   onChange={(event) =>
                     setDraftEntry((current) => ({
                       ...current,
@@ -1439,10 +1512,21 @@ export default function Home() {
                 />
               </label>
 
+              {appError ? (
+                <p className="mt-3 rounded-[8px] bg-[#fff2f2] p-3 text-sm font-bold leading-5 text-[#a33535]">
+                  {appError}
+                </p>
+              ) : null}
+
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <button
                   className="h-12 rounded-[8px] bg-[#eee7eb] text-sm font-black text-[#4c3f47]"
-                  onClick={() => setCaptureOpen(false)}
+                  disabled={saving}
+                  onClick={() => {
+                    setCaptureOpen(false);
+                    clearDraftEntry();
+                    setAppError("");
+                  }}
                   type="button"
                 >
                   닫기
@@ -1532,6 +1616,7 @@ export default function Home() {
                 한 줄
                 <input
                   className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
+                  maxLength={60}
                   onChange={(event) =>
                     setDraftEntry((current) => ({
                       ...current,
@@ -1543,18 +1628,21 @@ export default function Home() {
                 />
               </label>
 
+              {appError ? (
+                <p className="mt-3 rounded-[8px] bg-[#fff2f2] p-3 text-sm font-bold leading-5 text-[#a33535]">
+                  {appError}
+                </p>
+              ) : null}
+
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <button
                   className="h-12 rounded-[8px] bg-[#eee7eb] text-sm font-black text-[#4c3f47]"
+                  disabled={saving}
                   onClick={() => {
                     setEntryEditOpen(false);
                     setEditingEntry(null);
-                    setDraftEntry({
-                      file: null,
-                      previewUrl: "",
-                      content: "",
-                      eventDate: formatDateInput(new Date()),
-                    });
+                    clearDraftEntry();
+                    setAppError("");
                   }}
                   type="button"
                 >
@@ -1591,7 +1679,7 @@ export default function Home() {
                 닫기
               </button>
             </div>
-            <article className="overflow-hidden rounded-[8px] bg-white shadow-2xl">
+            <article className="max-h-[min(72vh,620px)] overflow-y-auto rounded-[8px] bg-white shadow-2xl">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 alt={`${detailEntry.grapeIndex}번째 포도알 사진`}
