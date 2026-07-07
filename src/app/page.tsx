@@ -53,8 +53,6 @@ function createGrapeRows(count: number) {
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
-  const [authDraft, setAuthDraft] = useState({ email: "", password: "" });
   const [authMessage, setAuthMessage] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
 
@@ -197,78 +195,6 @@ export default function Home() {
     // Supabase auth subscription is intentionally installed once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (authSubmitting) return;
-
-    setAuthMessage("");
-    setAuthSubmitting(true);
-
-    try {
-      const email = authDraft.email.trim();
-      const password = authDraft.password;
-
-      const { data, error } =
-        authMode === "signup"
-          ? await supabase.auth.signUp({
-              email,
-              password,
-              options: {
-                emailRedirectTo: getAuthRedirectUrl(),
-              },
-            })
-          : await supabase.auth.signInWithPassword({ email, password });
-
-      if (error) throw error;
-
-      if (authMode === "signup" && !data.session) {
-        setAuthMessage("가입 확인 메일을 확인한 뒤 다시 로그인하세요.");
-        return;
-      }
-
-      setAuthMessage("");
-    } catch (error) {
-      setAuthMessage(
-        error instanceof Error ? error.message : "인증에 실패했습니다.",
-      );
-    } finally {
-      setAuthSubmitting(false);
-    }
-  }
-
-  async function handleResendConfirmation() {
-    const email = authDraft.email.trim();
-    if (!email) {
-      setAuthMessage("이메일을 입력한 뒤 다시 보내기를 눌러주세요.");
-      return;
-    }
-
-    setAuthSubmitting(true);
-    setAuthMessage("");
-
-    try {
-      const { error } = await supabase.auth.resend({
-        type: "signup",
-        email,
-        options: {
-          emailRedirectTo: getAuthRedirectUrl(),
-        },
-      });
-
-      if (error) throw error;
-
-      setAuthMessage("확인 메일을 다시 보냈습니다. 메일함을 확인하세요.");
-    } catch (error) {
-      setAuthMessage(
-        error instanceof Error
-          ? error.message
-          : "확인 메일을 다시 보내지 못했습니다.",
-      );
-    } finally {
-      setAuthSubmitting(false);
-    }
-  }
 
   async function handleGoogleSignIn() {
     if (authSubmitting) return;
@@ -634,110 +560,29 @@ export default function Home() {
             </p>
           </div>
 
-          <form
-            className="mt-8 rounded-[8px] bg-white p-4 shadow-xl"
-            onSubmit={handleAuthSubmit}
-          >
-            <h2 className="text-lg font-black">
-              {authMode === "signin" ? "로그인" : "회원가입"}
-            </h2>
-
-            <div className="mt-4 grid gap-2">
-              <button
-                className="flex h-12 items-center justify-center rounded-[8px] border border-[#dec9c0] bg-white text-sm font-black text-[#241424] shadow-sm disabled:text-[#9b8ca2]"
-                disabled={authSubmitting}
-                onClick={handleGoogleSignIn}
-                type="button"
-              >
-                Google로 계속하기
-              </button>
-            </div>
-
-            <div className="my-5 flex items-center gap-3">
-              <span className="h-px flex-1 bg-[#ead8d0]" />
-              <span className="text-xs font-black text-[#9a8793]">
-                이메일로 계속하기
-              </span>
-              <span className="h-px flex-1 bg-[#ead8d0]" />
-            </div>
-
-            <label className="mt-4 block text-sm font-bold text-[#604c5a]">
-              이메일
-              <input
-                className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
-                onChange={(event) =>
-                  setAuthDraft((current) => ({
-                    ...current,
-                    email: event.target.value,
-                  }))
-                }
-                required
-                type="email"
-                value={authDraft.email}
-              />
-            </label>
-            <label className="mt-3 block text-sm font-bold text-[#604c5a]">
-              비밀번호
-              <input
-                className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
-                minLength={6}
-                onChange={(event) =>
-                  setAuthDraft((current) => ({
-                    ...current,
-                    password: event.target.value,
-                  }))
-                }
-                required
-                type="password"
-                value={authDraft.password}
-              />
-            </label>
+          <div className="mt-8 rounded-[8px] bg-white p-4 shadow-xl">
+            <h2 className="text-lg font-black">Google로 시작하기</h2>
+            <p className="mt-2 text-sm font-bold leading-6 text-[#604c5a]">
+              가입과 로그인은 Google 계정으로만 진행합니다.
+            </p>
 
             {authMessage ? (
-              <div className="mt-3 rounded-[8px] bg-[#fff8f3] p-3">
+              <div className="mt-4 rounded-[8px] bg-[#fff8f3] p-3">
                 <p className="text-sm font-bold leading-5 text-[#6f2c83]">
                   {authMessage}
                 </p>
-                {authMode === "signup" ? (
-                  <button
-                    className="mt-3 h-10 w-full rounded-[8px] bg-white text-sm font-black text-[#6f2c83] shadow-sm disabled:text-[#9b8ca2]"
-                    disabled={authSubmitting}
-                    onClick={handleResendConfirmation}
-                    type="button"
-                  >
-                    확인 메일 다시 보내기
-                  </button>
-                ) : null}
               </div>
             ) : null}
 
             <button
-              className="mt-4 h-12 w-full rounded-[8px] bg-[#6f2c83] text-sm font-black text-white disabled:bg-[#b6a6bd]"
+              className="mt-4 flex h-12 w-full items-center justify-center rounded-[8px] border border-[#dec9c0] bg-white text-sm font-black text-[#241424] shadow-sm disabled:text-[#9b8ca2]"
               disabled={authSubmitting}
-              type="submit"
-            >
-              {authSubmitting
-                ? "처리 중"
-                : authMode === "signin"
-                  ? "시작하기"
-                  : "가입하기"}
-            </button>
-
-            <button
-              className="mt-3 h-10 w-full text-sm font-black text-[#6f2c83]"
-              onClick={() => {
-                setAuthMode((current) =>
-                  current === "signin" ? "signup" : "signin",
-                );
-                setAuthMessage("");
-              }}
+              onClick={handleGoogleSignIn}
               type="button"
             >
-              {authMode === "signin"
-                ? "처음이라면 회원가입"
-                : "이미 계정이 있다면 로그인"}
+              {authSubmitting ? "Google로 이동 중" : "Google로 계속하기"}
             </button>
-          </form>
+          </div>
         </section>
       </main>
     );
