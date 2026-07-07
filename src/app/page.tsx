@@ -3,6 +3,7 @@
 import type { User } from "@supabase/supabase-js";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { FeedbackMessage } from "@/components/FeedbackMessage";
+import { CompletedGrapeAlbum } from "@/components/CompletedGrapeAlbum";
 import { GrapeCluster } from "@/components/GrapeCluster";
 import { GrapeEntryDetail } from "@/components/GrapeEntryDetail";
 import { GoalSheet } from "@/components/GoalSheet";
@@ -70,6 +71,7 @@ export default function Home() {
   );
   const [captureOpen, setCaptureOpen] = useState(false);
   const [entryEditOpen, setEntryEditOpen] = useState(false);
+  const [albumOpen, setAlbumOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<GrapeEntry | null>(null);
   const [detailEntry, setDetailEntry] = useState<GrapeEntry | null>(null);
   const [draftTitle, setDraftTitle] = useState("운동 30일");
@@ -232,6 +234,7 @@ export default function Home() {
     setManagingChallengeId(null);
     setEditingChallengeId(null);
     setEntryEditOpen(false);
+    setAlbumOpen(false);
     setEditingEntry(null);
   }
 
@@ -857,7 +860,7 @@ export default function Home() {
           disabled={saving}
           onClick={() => {
             if (complete) {
-              setDetailEntry(challenge.entries.at(-1) ?? null);
+              setAlbumOpen(true);
               return;
             }
             openTodayGrape();
@@ -930,6 +933,18 @@ export default function Home() {
               clearDraftEntry();
               setAppError("");
             }}
+          />
+        ) : null}
+
+        {albumOpen ? (
+          <CompletedGrapeAlbum
+            title={challenge.title}
+            entries={challenge.entries}
+            onEntryClick={(entry) => {
+              setDetailEntry(entry);
+              setAlbumOpen(false);
+            }}
+            onClose={() => setAlbumOpen(false)}
           />
         ) : null}
 

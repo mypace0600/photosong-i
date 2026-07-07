@@ -23,6 +23,9 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
     title: "포토송이",
   },
+  formatDetection: {
+    telephone: false,
+  },
   icons: {
     icon: "/icon.svg",
     apple: "/icon.svg",

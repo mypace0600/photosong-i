@@ -1,4 +1,4 @@
-import { getImageExtension } from "@/lib/images";
+import { getImageExtension, optimizeImageFile } from "@/lib/images";
 import { supabase } from "@/lib/supabase";
 
 export const GRAPE_BUCKET = "grape-photos";
@@ -30,11 +30,12 @@ export async function uploadGrapePhoto(params: {
   grapeIndex: number;
   file: File;
 }) {
-  const imagePath = `${params.userId}/${params.challengeId}/${params.grapeIndex}-${Date.now()}.${getImageExtension(params.file)}`;
+  const uploadFile = await optimizeImageFile(params.file);
+  const imagePath = `${params.userId}/${params.challengeId}/${params.grapeIndex}-${Date.now()}.${getImageExtension(uploadFile)}`;
   const { error } = await supabase.storage
     .from(GRAPE_BUCKET)
-    .upload(imagePath, params.file, {
-      contentType: params.file.type || "image/jpeg",
+    .upload(imagePath, uploadFile, {
+      contentType: uploadFile.type || "image/jpeg",
       upsert: false,
     });
 

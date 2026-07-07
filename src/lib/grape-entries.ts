@@ -51,23 +51,36 @@ export async function createGrapeEntry(params: {
       file: params.file,
     });
 
-    const { data, error } = await supabase
-      .from("grape_entries")
-      .insert({
-        challenge_id: params.challengeId,
-        user_id: params.userId,
-        grape_index: params.grapeIndex,
-        image_path: uploadedImagePath,
-        content: params.content.trim() || DEFAULT_ENTRY_CONTENT,
-        event_date: params.eventDate,
-      })
-      .select("*")
-      .single();
+    const { data, error } = await supabase.rpc("create_next_grape_entry", {
+      p_challenge_id: params.challengeId,
+      p_image_path: uploadedImagePath,
+      p_content: params.content,
+      p_event_date: params.eventDate,
+    });
 
-    if (error) throw error;
+    if (error && !error.message.toLowerCase().includes("function")) {
+      throw error;
+    }
+
+    const fallbackResult = error
+      ? await supabase
+          .from("grape_entries")
+          .insert({
+            challenge_id: params.challengeId,
+            user_id: params.userId,
+            grape_index: params.grapeIndex,
+            image_path: uploadedImagePath,
+            content: params.content.trim() || DEFAULT_ENTRY_CONTENT,
+            event_date: params.eventDate,
+          })
+          .select("*")
+          .single()
+      : { data, error: null };
+
+    if (fallbackResult.error) throw fallbackResult.error;
     uploadedImagePath = "";
 
-    const entryRow = data as GrapeEntryRow;
+    const entryRow = fallbackResult.data as GrapeEntryRow;
     return mapEntryRow(entryRow, await createSignedUrl(entryRow.image_path));
   } catch (error) {
     if (uploadedImagePath) {

@@ -13,6 +13,14 @@ NEXT_PUBLIC_SITE_URL=http://localhost:3000
 ```
 
 Vercel에도 같은 값을 Project Settings의 Environment Variables에 등록합니다.
+관리자 페이지를 사용할 경우 서버 전용 환경변수도 추가합니다.
+
+```env
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+ADMIN_EMAILS=mypace0600@gmail.com
+```
+
+`SUPABASE_SERVICE_ROLE_KEY`에는 `NEXT_PUBLIC_` prefix를 붙이지 않습니다.
 
 ## 2. DB와 Storage 생성
 
@@ -26,6 +34,7 @@ supabase/migrations/001_initial_schema.sql
 
 ```text
 supabase/migrations/002_add_grape_entry_event_date.sql
+supabase/migrations/003_create_next_grape_entry_rpc.sql
 ```
 
 이 스크립트가 생성하는 항목:
@@ -40,15 +49,7 @@ supabase/migrations/002_add_grape_entry_event_date.sql
 
 ## 3. Auth 설정
 
-MVP는 Google 로그인을 우선 사용하고, 이메일/비밀번호 로그인을 보조로 둡니다.
-
-Supabase Dashboard에서 확인할 항목:
-
-- Authentication > Providers > Email 활성화
-- 로컬 테스트 중 이메일 확인을 생략하려면 Confirm email 옵션 비활성화
-- 이메일 확인을 켜둘 경우 가입 후 확인 메일을 눌러야 로그인 가능
-
-### Google 로그인
+포토송이는 Google 로그인만 사용합니다.
 
 Supabase Dashboard:
 
@@ -83,6 +84,8 @@ Vercel 환경변수:
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 NEXT_PUBLIC_SITE_URL=https://photosong-i.vercel.app
+SUPABASE_SERVICE_ROLE_KEY
+ADMIN_EMAILS=mypace0600@gmail.com
 ```
 
-Secret key는 Vercel public 환경변수에 넣지 않습니다.
+Secret key와 service role key는 Vercel public 환경변수에 넣지 않습니다.
