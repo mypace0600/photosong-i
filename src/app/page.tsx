@@ -33,6 +33,7 @@ type ChallengeSummary = {
 const GRAPE_BUCKET = "grape-photos";
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const DEFAULT_ENTRY_CONTENT = "오늘 포도알 하나 채웠다.";
+const DEFAULT_ERROR_MESSAGE = "잠시 후 다시 시도하세요.";
 
 function getAuthRedirectUrl() {
   return process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
@@ -92,6 +93,52 @@ function validateImageFile(file: File) {
   return "";
 }
 
+function getFriendlyErrorMessage(error: unknown, fallback: string) {
+  if (!(error instanceof Error)) return fallback;
+
+  const message = error.message.toLowerCase();
+
+  if (message.includes("network") || message.includes("fetch")) {
+    return "연결이 불안정합니다. 잠시 후 다시 시도하세요.";
+  }
+
+  if (message.includes("row-level security") || message.includes("policy")) {
+    return "권한 확인이 필요합니다. 다시 로그인한 뒤 시도하세요.";
+  }
+
+  if (message.includes("event_date")) {
+    return "사건 날짜 저장 설정이 필요합니다. Supabase 마이그레이션을 확인하세요.";
+  }
+
+  if (message.includes("payload") || message.includes("too large")) {
+    return "사진 용량이 큽니다. 5MB 이하 사진을 선택하세요.";
+  }
+
+  return error.message || fallback || DEFAULT_ERROR_MESSAGE;
+}
+
+function LoadingGrapeCluster() {
+  return (
+    <div className="grid gap-2" aria-hidden="true">
+      {[5, 4, 5, 4].map((count, rowIndex) => (
+        <div
+          className={`flex justify-center gap-2 ${
+            rowIndex % 2 === 1 ? "translate-x-4" : ""
+          }`}
+          key={`${count}-${rowIndex}`}
+        >
+          {Array.from({ length: count }).map((_, grapeIndex) => (
+            <span
+              className="size-9 animate-pulse rounded-full bg-[#e4d8df]"
+              key={`${rowIndex}-${grapeIndex}`}
+            />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 async function createSignedUrl(imagePath: string) {
   const { data, error } = await supabase.storage
     .from(GRAPE_BUCKET)
@@ -142,6 +189,9 @@ export default function Home() {
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [dataLoading, setDataLoading] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [managingChallengeId, setManagingChallengeId] = useState<string | null>(
+    null,
+  );
   const [editingChallengeId, setEditingChallengeId] = useState<string | null>(
     null,
   );
@@ -165,6 +215,7 @@ export default function Home() {
   const [justAddedIndex, setJustAddedIndex] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [appError, setAppError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
 
   const rows = useMemo(
     () => createGrapeRows(challenge?.grapeCount ?? 30),
@@ -193,6 +244,7 @@ export default function Home() {
   async function loadChallengeList(currentUser: User) {
     setDataLoading(true);
     setAppError("");
+    setSuccessMessage("");
 
     try {
       const { data: challenges, error: challengeError } = await supabase
@@ -228,40 +280,45 @@ export default function Home() {
         );
       });
 
-      setChallengeSummaries(
-        challengeRows.map((row) => ({
+      const summaries = challengeRows.map((row) => ({
           id: row.id,
           title: row.title,
           grapeCount: row.grape_count,
           entryCount: countByChallenge.get(row.id) ?? 0,
           createdAt: formatDate(row.created_at),
-        })),
-      );
+        }));
+
+      setChallengeSummaries(summaries);
+
+      if (challengeRows.length === 1) {
+        await loadChallengeDetail(challengeRows[0].id, currentUser);
+        return;
+      }
+
       setChallenge(null);
       setDetailEntry(null);
     } catch (error) {
       setAppError(
-        error instanceof Error
-          ? error.message
-          : "목표 목록을 불러오지 못했습니다.",
+        getFriendlyErrorMessage(error, "목표 목록을 불러오지 못했습니다."),
       );
     } finally {
       setDataLoading(false);
     }
   }
 
-  async function loadChallengeDetail(challengeId: string) {
-    if (!user) return;
+  async function loadChallengeDetail(challengeId: string, currentUser = user) {
+    if (!currentUser) return;
 
     setDataLoading(true);
     setAppError("");
+    setSuccessMessage("");
 
     try {
       const { data: challengeRow, error: challengeError } = await supabase
         .from("challenges")
         .select("*")
         .eq("id", challengeId)
-        .eq("user_id", user.id)
+        .eq("user_id", currentUser.id)
         .single();
 
       if (challengeError) throw challengeError;
@@ -287,12 +344,10 @@ export default function Home() {
       });
       setDraftTitle(row.title);
       setDraftGrapeCount(row.grape_count);
-      setDetailEntry(entries.at(-1) ?? null);
+      setDetailEntry(null);
     } catch (error) {
       setAppError(
-        error instanceof Error
-          ? error.message
-          : "포도송이를 불러오지 못했습니다.",
+        getFriendlyErrorMessage(error, "포도송이를 불러오지 못했습니다."),
       );
     } finally {
       setDataLoading(false);
@@ -326,6 +381,8 @@ export default function Home() {
       mounted = false;
       subscription.unsubscribe();
     };
+    // Supabase auth subscription is intentionally installed once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
@@ -433,6 +490,7 @@ export default function Home() {
     setChallengeSummaries([]);
     setChallenge(null);
     setSetupOpen(false);
+    setManagingChallengeId(null);
     setEditingChallengeId(null);
     setEntryEditOpen(false);
     setEditingEntry(null);
@@ -442,6 +500,7 @@ export default function Home() {
     if (!challenge || complete) return;
     clearDraftEntry();
     setAppError("");
+    setSuccessMessage("");
     setCaptureOpen(true);
   }
 
@@ -462,6 +521,7 @@ export default function Home() {
     setDraftTitle("");
     setDraftGrapeCount(30);
     setAppError("");
+    setSuccessMessage("");
     setSetupOpen(true);
   }
 
@@ -470,6 +530,7 @@ export default function Home() {
     setDraftTitle(summary.title);
     setDraftGrapeCount(summary.grapeCount);
     setAppError("");
+    setSuccessMessage("");
     setSetupOpen(true);
   }
 
@@ -492,6 +553,7 @@ export default function Home() {
 
     setSaving(true);
     setAppError("");
+    setSuccessMessage("");
 
     try {
       if (editingChallengeId) {
@@ -500,13 +562,20 @@ export default function Home() {
             ? challenge.entries.length
             : (challengeSummaries.find((item) => item.id === editingChallengeId)
                 ?.entryCount ?? 0);
-        const nextGrapeCount = Math.max(grapeCount, currentEntryCount, 1);
+
+        if (grapeCount < currentEntryCount) {
+          setAppError(
+            `이미 ${currentEntryCount}개의 포도알이 있어서 도전 일수를 그보다 줄일 수 없습니다.`,
+          );
+          setDraftGrapeCount(currentEntryCount);
+          return;
+        }
 
         const { data, error } = await supabase
           .from("challenges")
           .update({
             title,
-            grape_count: nextGrapeCount,
+            grape_count: grapeCount,
           })
           .eq("id", editingChallengeId)
           .eq("user_id", user.id)
@@ -538,7 +607,9 @@ export default function Home() {
         );
         setDraftGrapeCount(row.grape_count);
         setEditingChallengeId(null);
+        setManagingChallengeId(null);
         setSetupOpen(false);
+        setSuccessMessage("목표를 수정했습니다.");
         return;
       }
 
@@ -574,10 +645,12 @@ export default function Home() {
       setDetailEntry(null);
       setJustAddedIndex(null);
       setEditingChallengeId(null);
+      setManagingChallengeId(null);
       setSetupOpen(false);
+      setSuccessMessage("첫 포도송이를 만들었습니다.");
     } catch (error) {
       setAppError(
-        error instanceof Error ? error.message : "목표를 만들지 못했습니다.",
+        getFriendlyErrorMessage(error, "목표를 저장하지 못했습니다."),
       );
     } finally {
       setSaving(false);
@@ -586,11 +659,19 @@ export default function Home() {
 
   async function handleDeleteChallenge(challengeId: string) {
     if (!user || saving) return;
-    const ok = window.confirm("이 목표와 포도알 기록을 삭제할까요?");
+    const targetTitle =
+      challenge?.id === challengeId
+        ? challenge.title
+        : (challengeSummaries.find((item) => item.id === challengeId)?.title ??
+          "이 목표");
+    const ok = window.confirm(
+      `"${targetTitle}" 목표와 포도알 기록을 삭제할까요?`,
+    );
     if (!ok) return;
 
     setSaving(true);
     setAppError("");
+    setSuccessMessage("");
 
     try {
       const { data: entryRows, error: entryError } = await supabase
@@ -629,10 +710,12 @@ export default function Home() {
         setDetailEntry(null);
       }
       setSetupOpen(false);
+      setManagingChallengeId(null);
       setEditingChallengeId(null);
+      setSuccessMessage("목표를 삭제했습니다.");
     } catch (error) {
       setAppError(
-        error instanceof Error ? error.message : "목표를 삭제하지 못했습니다.",
+        getFriendlyErrorMessage(error, "목표를 삭제하지 못했습니다."),
       );
     } finally {
       setSaving(false);
@@ -646,6 +729,7 @@ export default function Home() {
     const validationMessage = validateImageFile(file);
     if (validationMessage) {
       setAppError(validationMessage);
+      setSuccessMessage("");
       event.target.value = "";
       return;
     }
@@ -655,6 +739,7 @@ export default function Home() {
     }
 
     setAppError("");
+    setSuccessMessage("");
     setDraftEntry((current) => ({
       ...current,
       file,
@@ -675,6 +760,7 @@ export default function Home() {
 
     setSaving(true);
     setAppError("");
+    setSuccessMessage("");
 
     let uploadedImagePath = "";
 
@@ -741,6 +827,7 @@ export default function Home() {
       );
       setDetailEntry(entry);
       setJustAddedIndex(entry.grapeIndex);
+      setSuccessMessage(`${entry.grapeIndex}번째 포도알을 채웠어요.`);
       clearDraftEntry();
       setCaptureOpen(false);
 
@@ -751,9 +838,7 @@ export default function Home() {
       }
 
       setAppError(
-        error instanceof Error
-          ? error.message
-          : "오늘의 포도알을 저장하지 못했습니다.",
+        getFriendlyErrorMessage(error, "오늘의 포도알을 붙이지 못했습니다."),
       );
     } finally {
       setSaving(false);
@@ -766,6 +851,7 @@ export default function Home() {
 
     setSaving(true);
     setAppError("");
+    setSuccessMessage("");
 
     let uploadedImagePath = "";
 
@@ -828,6 +914,7 @@ export default function Home() {
       setDetailEntry(updatedEntry);
       setEditingEntry(null);
       setEntryEditOpen(false);
+      setSuccessMessage(`${updatedEntry.grapeIndex}번째 포도알을 고쳤어요.`);
       clearDraftEntry();
     } catch (error) {
       if (uploadedImagePath) {
@@ -835,9 +922,7 @@ export default function Home() {
       }
 
       setAppError(
-        error instanceof Error
-          ? error.message
-          : "포도알을 수정하지 못했습니다.",
+        getFriendlyErrorMessage(error, "포도알을 수정하지 못했습니다."),
       );
     } finally {
       setSaving(false);
@@ -847,7 +932,12 @@ export default function Home() {
   if (authLoading) {
     return (
       <main className="grid min-h-screen place-items-center bg-[#fff8f3] px-5 text-[#241424]">
-        <p className="text-sm font-black text-[#6f2c83]">포토송이 여는 중</p>
+        <div className="grid gap-4 text-center">
+          <LoadingGrapeCluster />
+          <p className="text-sm font-black text-[#6f2c83]">
+            포도송이 여는 중
+          </p>
+        </div>
       </main>
     );
   }
@@ -983,9 +1073,12 @@ export default function Home() {
   if (dataLoading) {
     return (
       <main className="grid min-h-screen place-items-center bg-[#fff8f3] px-5 text-[#241424]">
-        <p className="text-sm font-black text-[#6f2c83]">
-          내 포도송이 불러오는 중
-        </p>
+        <div className="grid gap-4 text-center">
+          <LoadingGrapeCluster />
+          <p className="text-sm font-black text-[#6f2c83]">
+            내 포도송이 불러오는 중
+          </p>
+        </div>
       </main>
     );
   }
@@ -1014,6 +1107,11 @@ export default function Home() {
           {appError ? (
             <p className="mt-4 rounded-[8px] bg-[#fff2f2] p-3 text-sm font-bold leading-5 text-[#a33535]">
               {appError}
+            </p>
+          ) : null}
+          {successMessage ? (
+            <p className="mt-4 rounded-[8px] bg-[#eff8ea] p-3 text-sm font-bold leading-5 text-[#37652c]">
+              {successMessage}
             </p>
           ) : null}
 
@@ -1053,23 +1151,33 @@ export default function Home() {
                       />
                     </div>
                   </button>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
+                  {managingChallengeId === summary.id ? (
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        className="h-10 rounded-[8px] bg-[#eee7eb] text-sm font-black text-[#4c3f47]"
+                        onClick={() => openEditGoal(summary)}
+                        type="button"
+                      >
+                        목표 수정
+                      </button>
+                      <button
+                        className="h-10 rounded-[8px] bg-[#fff2f2] text-sm font-black text-[#a33535]"
+                        disabled={saving}
+                        onClick={() => void handleDeleteChallenge(summary.id)}
+                        type="button"
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  ) : (
                     <button
-                      className="h-10 rounded-[8px] bg-[#eee7eb] text-sm font-black text-[#4c3f47]"
-                      onClick={() => openEditGoal(summary)}
+                      className="mt-3 h-10 w-full rounded-[8px] bg-[#f3edf0] text-sm font-black text-[#604c5a]"
+                      onClick={() => setManagingChallengeId(summary.id)}
                       type="button"
                     >
-                      수정
+                      관리
                     </button>
-                    <button
-                      className="h-10 rounded-[8px] bg-[#fff2f2] text-sm font-black text-[#a33535]"
-                      disabled={saving}
-                      onClick={() => void handleDeleteChallenge(summary.id)}
-                      type="button"
-                    >
-                      삭제
-                    </button>
-                  </div>
+                  )}
                 </article>
               );
             })}
@@ -1098,7 +1206,7 @@ export default function Home() {
                     className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
                     maxLength={32}
                     onChange={(event) => setDraftTitle(event.target.value)}
-                    placeholder="운동"
+                    placeholder="운동 30일"
                     required
                     value={draftTitle}
                   />
@@ -1153,8 +1261,11 @@ export default function Home() {
           <div className="text-center">
             <p className="text-sm font-black text-[#7c3a5d]">PhotoSong-i</p>
             <h1 className="mt-1 text-3xl font-black tracking-normal">
-              목표 만들기
+              첫 포도송이 만들기
             </h1>
+            <p className="mt-3 text-sm font-bold leading-6 text-[#604c5a]">
+              오늘 채울 목표 하나만 정하세요.
+            </p>
           </div>
 
           <form
@@ -1167,7 +1278,7 @@ export default function Home() {
                 className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
                 maxLength={32}
                 onChange={(event) => setDraftTitle(event.target.value)}
-                placeholder="운동"
+                placeholder="운동 30일"
                 required
                 value={draftTitle}
               />
@@ -1197,13 +1308,13 @@ export default function Home() {
               disabled={saving}
               type="submit"
             >
-              {saving ? "만드는 중" : "시작"}
+              {saving ? "포도송이 만드는 중" : "포도송이 시작"}
             </button>
-          <button
-            className="mt-3 h-10 w-full text-sm font-black text-[#6f2c83]"
-            disabled={saving}
-            onClick={handleSignOut}
-            type="button"
+            <button
+              className="mt-3 h-10 w-full text-sm font-black text-[#6f2c83]"
+              disabled={saving}
+              onClick={handleSignOut}
+              type="button"
             >
               로그아웃
             </button>
@@ -1217,26 +1328,14 @@ export default function Home() {
     <main className="min-h-screen bg-[#fff8f3] text-[#241424]">
       <section className="mx-auto flex min-h-screen w-full max-w-[460px] flex-col px-5 pb-6 pt-[max(24px,env(safe-area-inset-top))]">
         <header className="flex items-center justify-between gap-3">
-          <button
-            className="min-w-0 flex-1 rounded-full px-1 py-1 text-left"
-            onClick={() =>
-              openEditGoal({
-                id: challenge.id,
-                title: challenge.title,
-                grapeCount: challenge.grapeCount,
-                entryCount: challenge.entries.length,
-                createdAt: "",
-              })
-            }
-            type="button"
-          >
+          <div className="min-w-0 flex-1 px-1 py-1">
             <span className="block text-xs font-bold text-[#7c3a5d]">
               PhotoSong-i
             </span>
             <span className="block truncate text-xl font-black tracking-normal">
               {challenge.title}
             </span>
-          </button>
+          </div>
 
           <div className="flex shrink-0 items-center gap-2">
             <div className="rounded-full bg-white px-3 py-2 text-sm font-black text-[#6f2c83] shadow-sm">
@@ -1253,12 +1352,19 @@ export default function Home() {
               목록
             </button>
             <button
-              className="h-9 rounded-full bg-[#eee7eb] px-3 text-xs font-black text-[#604c5a] shadow-sm disabled:text-[#a79aa3]"
-              disabled={saving || authSubmitting}
-              onClick={handleSignOut}
+              className="h-9 rounded-full bg-[#eee7eb] px-3 text-xs font-black text-[#604c5a] shadow-sm"
+              onClick={() =>
+                openEditGoal({
+                  id: challenge.id,
+                  title: challenge.title,
+                  grapeCount: challenge.grapeCount,
+                  entryCount: challenge.entries.length,
+                  createdAt: "",
+                })
+              }
               type="button"
             >
-              로그아웃
+              관리
             </button>
           </div>
         </header>
@@ -1266,6 +1372,11 @@ export default function Home() {
         {appError ? (
           <p className="mt-4 rounded-[8px] bg-[#fff2f2] p-3 text-sm font-bold leading-5 text-[#a33535]">
             {appError}
+          </p>
+        ) : null}
+        {successMessage ? (
+          <p className="mt-4 rounded-[8px] bg-[#eff8ea] p-3 text-sm font-bold leading-5 text-[#37652c]">
+            {successMessage}
           </p>
         ) : null}
 
@@ -1297,8 +1408,8 @@ export default function Home() {
                           filled
                             ? "border-[#481653] bg-[#723084] text-white shadow-[inset_-7px_-9px_0_rgba(0,0,0,0.18),0_10px_18px_rgba(103,39,120,0.18)]"
                             : isNext
-                              ? "border-[#cfc0c7] bg-white text-[#8b7a84] shadow-sm"
-                              : "border-[#d8cfd3] bg-[#ede8ea] text-transparent"
+                              ? "border-[#7f3d90] bg-white text-[#6f2c83] shadow-[0_0_0_5px_rgba(111,44,131,0.08),0_12px_22px_rgba(111,44,131,0.14)]"
+                              : "border-[#d8cfd3] bg-[#eee9ec] text-transparent opacity-70"
                         } ${isFresh ? "animate-grape-pop" : ""}`}
                         disabled={!filled && !isNext}
                         key={grapeIndex}
@@ -1319,12 +1430,12 @@ export default function Home() {
                               className="absolute inset-0 h-full w-full object-cover"
                               src={entry.imageUrl}
                             />
-                            <span className="absolute inset-0 bg-[#6f2c83]/45 mix-blend-multiply" />
-                            <span className="absolute inset-0 rounded-full shadow-[inset_-8px_-10px_0_rgba(42,12,52,0.32),inset_7px_8px_0_rgba(255,255,255,0.18)]" />
+                            <span className="absolute inset-0 bg-[#6f2c83]/25 mix-blend-multiply" />
+                            <span className="absolute inset-0 rounded-full shadow-[inset_-8px_-10px_0_rgba(42,12,52,0.26),inset_7px_8px_0_rgba(255,255,255,0.2)]" />
                             <span className="absolute left-3 top-2 size-3 rounded-full bg-white/55 blur-[1px]" />
                           </>
                         ) : isNext ? (
-                          "○"
+                          "+"
                         ) : (
                           ""
                         )}
@@ -1345,11 +1456,17 @@ export default function Home() {
 
         <button
           className="h-14 w-full rounded-[8px] bg-[#6f2c83] text-base font-black text-white shadow-[0_16px_28px_rgba(111,44,131,0.24)] transition active:scale-[0.99] disabled:bg-[#b6a6bd]"
-          disabled={complete || saving}
-          onClick={openTodayGrape}
+          disabled={saving}
+          onClick={() => {
+            if (complete) {
+              setDetailEntry(challenge.entries.at(-1) ?? null);
+              return;
+            }
+            openTodayGrape();
+          }}
           type="button"
         >
-          오늘의 포도알
+          {complete ? "완성된 포도송이" : "오늘의 포도알"}
         </button>
 
         {setupOpen ? (
@@ -1367,7 +1484,7 @@ export default function Home() {
                   className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
                   maxLength={32}
                   onChange={(event) => setDraftTitle(event.target.value)}
-                  placeholder="운동"
+                  placeholder="운동 30일"
                   required
                   value={draftTitle}
                 />
@@ -1422,6 +1539,14 @@ export default function Home() {
                   삭제
                 </button>
               ) : null}
+              <button
+                className="mt-2 h-10 w-full text-sm font-black text-[#6f2c83] disabled:text-[#b6a6bd]"
+                disabled={saving || authSubmitting}
+                onClick={handleSignOut}
+                type="button"
+              >
+                로그아웃
+              </button>
             </form>
           </div>
         ) : null}
@@ -1433,11 +1558,11 @@ export default function Home() {
               onSubmit={handleEntrySubmit}
             >
               <h2 className="text-lg font-black">
-                {nextGrapeIndex}번째 포도알
+                {nextGrapeIndex}번째 포도알 붙이기
               </h2>
 
               <div className="mt-4">
-                <label className="grid aspect-[4/3] w-full cursor-pointer place-items-center overflow-hidden rounded-[8px] border border-dashed border-[#b88ac8] bg-[#fff8f3] text-sm font-black text-[#6f2c83]">
+                <label className="grid aspect-[4/3] w-full cursor-pointer place-items-center overflow-hidden rounded-[8px] border border-dashed border-[#b88ac8] bg-[#fff8f3] text-sm font-black text-[#6f2c83] shadow-inner">
                   {draftEntry.previewUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -1446,7 +1571,7 @@ export default function Home() {
                       src={draftEntry.previewUrl}
                     />
                   ) : (
-                    <span>사진 *</span>
+                    <span>오늘의 사진 선택</span>
                   )}
                   <input
                     accept="image/*"
@@ -1458,7 +1583,7 @@ export default function Home() {
                 </label>
 
                 <div className="mt-2 grid grid-cols-2 gap-2">
-                  <label className="grid h-11 cursor-pointer place-items-center rounded-[8px] bg-[#eee7eb] text-sm font-black text-[#4c3f47]">
+                  <label className="grid h-12 cursor-pointer place-items-center rounded-[8px] bg-[#eee7eb] text-sm font-black text-[#4c3f47]">
                     사진 찍기
                     <input
                       accept="image/*"
@@ -1468,7 +1593,7 @@ export default function Home() {
                       type="file"
                     />
                   </label>
-                  <label className="grid h-11 cursor-pointer place-items-center rounded-[8px] bg-[#fff8f3] text-sm font-black text-[#6f2c83] shadow-sm">
+                  <label className="grid h-12 cursor-pointer place-items-center rounded-[8px] bg-[#fff8f3] text-sm font-black text-[#6f2c83] shadow-sm">
                     앨범에서 선택
                     <input
                       accept="image/*"
@@ -1497,7 +1622,7 @@ export default function Home() {
               </label>
 
               <label className="mt-4 block text-sm font-bold text-[#604c5a]">
-                한 줄
+                한 줄 기록
                 <input
                   className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
                   maxLength={60}
@@ -1507,7 +1632,7 @@ export default function Home() {
                       content: event.target.value,
                     }))
                   }
-                  placeholder="오늘도 움직였다."
+                  placeholder="비워두면 기본 문구로 저장돼요."
                   value={draftEntry.content}
                 />
               </label>
@@ -1536,7 +1661,7 @@ export default function Home() {
                   disabled={saving}
                   type="submit"
                 >
-                  {saving ? "저장 중" : "등록"}
+                  {saving ? "포도알 붙이는 중" : "포도알 붙이기"}
                 </button>
               </div>
             </form>
@@ -1550,11 +1675,11 @@ export default function Home() {
               onSubmit={handleEntryUpdate}
             >
               <h2 className="text-lg font-black">
-                {editingEntry.grapeIndex}번째 포도알 수정
+                {editingEntry.grapeIndex}번째 포도알 고치기
               </h2>
 
               <div className="mt-4">
-                <label className="grid aspect-[4/3] w-full cursor-pointer place-items-center overflow-hidden rounded-[8px] border border-dashed border-[#b88ac8] bg-[#fff8f3] text-sm font-black text-[#6f2c83]">
+                <label className="grid aspect-[4/3] w-full cursor-pointer place-items-center overflow-hidden rounded-[8px] border border-dashed border-[#b88ac8] bg-[#fff8f3] text-sm font-black text-[#6f2c83] shadow-inner">
                   {draftEntry.previewUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -1563,7 +1688,7 @@ export default function Home() {
                       src={draftEntry.previewUrl}
                     />
                   ) : (
-                    <span>사진 선택</span>
+                    <span>오늘의 사진 선택</span>
                   )}
                   <input
                     accept="image/*"
@@ -1574,7 +1699,7 @@ export default function Home() {
                 </label>
 
                 <div className="mt-2 grid grid-cols-2 gap-2">
-                  <label className="grid h-11 cursor-pointer place-items-center rounded-[8px] bg-[#eee7eb] text-sm font-black text-[#4c3f47]">
+                  <label className="grid h-12 cursor-pointer place-items-center rounded-[8px] bg-[#eee7eb] text-sm font-black text-[#4c3f47]">
                     사진 다시 찍기
                     <input
                       accept="image/*"
@@ -1584,7 +1709,7 @@ export default function Home() {
                       type="file"
                     />
                   </label>
-                  <label className="grid h-11 cursor-pointer place-items-center rounded-[8px] bg-[#fff8f3] text-sm font-black text-[#6f2c83] shadow-sm">
+                  <label className="grid h-12 cursor-pointer place-items-center rounded-[8px] bg-[#fff8f3] text-sm font-black text-[#6f2c83] shadow-sm">
                     앨범에서 교체
                     <input
                       accept="image/*"
@@ -1613,7 +1738,7 @@ export default function Home() {
               </label>
 
               <label className="mt-4 block text-sm font-bold text-[#604c5a]">
-                한 줄
+                한 줄 기록
                 <input
                   className="mt-2 h-12 w-full rounded-[8px] border border-[#dec9c0] px-3 text-base outline-none focus:border-[#6f2c83]"
                   maxLength={60}
@@ -1623,7 +1748,7 @@ export default function Home() {
                       content: event.target.value,
                     }))
                   }
-                  placeholder="오늘도 움직였다."
+                  placeholder="비워두면 기본 문구로 저장돼요."
                   value={draftEntry.content}
                 />
               </label>
@@ -1653,7 +1778,7 @@ export default function Home() {
                   disabled={saving}
                   type="submit"
                 >
-                  {saving ? "저장 중" : "수정"}
+                  {saving ? "포도알 고치는 중" : "포도알 고치기"}
                 </button>
               </div>
             </form>
