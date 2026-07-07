@@ -13,7 +13,6 @@ export type GrapeEntryRow = {
   user_id: string;
   grape_index: number;
   image_path: string;
-  image_url: string;
   content: string | null;
   event_date: string;
   created_at: string;
