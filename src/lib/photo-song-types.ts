@@ -13,6 +13,7 @@ export type Challenge = {
   title: string;
   grapeCount: number;
   completedAt: string | null;
+  oneGrapePerDay: boolean;
   entries: GrapeEntry[];
 };
 
@@ -23,6 +24,7 @@ export type ChallengeSummary = {
   entryCount: number;
   createdAt: string;
   completedAt: string | null;
+  oneGrapePerDay: boolean;
 };
 
 export type GrapeEntryDraft = {

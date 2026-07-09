@@ -41,6 +41,7 @@ export async function fetchChallengeSummaries(userId: string) {
     entryCount: countByChallenge.get(row.id) ?? 0,
     createdAt: formatDate(row.created_at),
     completedAt: row.completed_at,
+    oneGrapePerDay: row.one_grape_per_day ?? false,
   }));
 }
 
@@ -75,6 +76,7 @@ export async function fetchChallengeDetail(
     title: row.title,
     grapeCount: row.grape_count,
     completedAt: row.completed_at,
+    oneGrapePerDay: row.one_grape_per_day ?? false,
     entries,
   };
 }
@@ -83,6 +85,7 @@ export async function createChallenge(params: {
   userId: string;
   title: string;
   grapeCount: number;
+  oneGrapePerDay: boolean;
 }) {
   const { data, error } = await supabase
     .from("challenges")
@@ -90,6 +93,7 @@ export async function createChallenge(params: {
       user_id: params.userId,
       title: params.title,
       grape_count: params.grapeCount,
+      one_grape_per_day: params.oneGrapePerDay,
     })
     .select("*")
     .single();
@@ -103,6 +107,7 @@ export async function createChallenge(params: {
       title: row.title,
       grapeCount: row.grape_count,
       completedAt: row.completed_at,
+      oneGrapePerDay: row.one_grape_per_day ?? false,
       entries: [],
     },
     summary: {
@@ -112,6 +117,7 @@ export async function createChallenge(params: {
       entryCount: 0,
       createdAt: formatDate(row.created_at),
       completedAt: row.completed_at,
+      oneGrapePerDay: row.one_grape_per_day ?? false,
     },
   };
 }
@@ -121,12 +127,14 @@ export async function updateChallenge(params: {
   challengeId: string;
   title: string;
   grapeCount: number;
+  oneGrapePerDay: boolean;
 }) {
   const { data, error } = await supabase
     .from("challenges")
     .update({
       title: params.title,
       grape_count: params.grapeCount,
+      one_grape_per_day: params.oneGrapePerDay,
     })
     .eq("id", params.challengeId)
     .eq("user_id", params.userId)
@@ -184,5 +192,6 @@ export function toChallengeSummary(
     entryCount: previous?.entryCount ?? 0,
     createdAt: previous?.createdAt ?? formatDate(row.created_at),
     completedAt: row.completed_at,
+    oneGrapePerDay: row.one_grape_per_day ?? false,
   };
 }

@@ -167,6 +167,134 @@ function downloadBlob(blob: Blob, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function openPrintableAlbum(title: string, entries: GrapeEntry[]) {
+  const printWindow = window.open("", "_blank", "noopener,noreferrer");
+  if (!printWindow) {
+    throw new Error("팝업이 차단되어 PDF 화면을 열지 못했습니다.");
+  }
+
+  const safeTitle = escapeHtml(title);
+  const entryHtml = entries
+    .map(
+      (entry) => `
+        <article class="entry">
+          <img alt="${entry.grapeIndex}번째 포도알 사진" src="${entry.imageUrl}" />
+          <div class="entry-body">
+            <strong>${entry.grapeIndex}번째 포도알</strong>
+            <span>사건 날짜 ${escapeHtml(entry.eventDate)}</span>
+            <p>${escapeHtml(entry.content)}</p>
+          </div>
+        </article>
+      `,
+    )
+    .join("");
+
+  printWindow.document.write(`
+    <!doctype html>
+    <html lang="ko">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>${safeTitle} - 포토송이 앨범</title>
+        <style>
+          @page { margin: 18mm; }
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            color: #241424;
+            background: #fff8f3;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          }
+          main { max-width: 880px; margin: 0 auto; padding: 36px 24px; }
+          header { text-align: center; margin-bottom: 28px; }
+          .brand { color: #7c3a5d; font-weight: 900; font-size: 14px; }
+          h1 { margin: 8px 0 10px; font-size: 34px; line-height: 1.2; }
+          .summary { color: #604c5a; font-weight: 800; }
+          .entry {
+            break-inside: avoid;
+            display: grid;
+            grid-template-columns: 180px 1fr;
+            gap: 18px;
+            margin-top: 16px;
+            padding: 16px;
+            border-radius: 8px;
+            background: #ffffff;
+            border: 1px solid #ead8d0;
+          }
+          img {
+            width: 180px;
+            height: 180px;
+            object-fit: cover;
+            border-radius: 8px;
+            background: #eee7eb;
+          }
+          .entry-body { padding-top: 4px; }
+          strong { display: block; color: #6f2c83; font-size: 18px; }
+          span {
+            display: block;
+            margin-top: 6px;
+            color: #86717f;
+            font-size: 13px;
+            font-weight: 800;
+          }
+          p {
+            margin: 18px 0 0;
+            color: #241424;
+            font-size: 18px;
+            font-weight: 800;
+            line-height: 1.55;
+            white-space: pre-wrap;
+          }
+          .print {
+            position: sticky;
+            bottom: 18px;
+            display: block;
+            width: min(320px, 100%);
+            height: 48px;
+            margin: 28px auto 0;
+            border: 0;
+            border-radius: 8px;
+            background: #6f2c83;
+            color: #ffffff;
+            font-weight: 900;
+            cursor: pointer;
+          }
+          @media print {
+            body { background: #ffffff; }
+            main { padding: 0; }
+            .print { display: none; }
+          }
+          @media (max-width: 640px) {
+            .entry { grid-template-columns: 1fr; }
+            img { width: 100%; height: auto; aspect-ratio: 1 / 1; }
+          }
+        </style>
+      </head>
+      <body>
+        <main>
+          <header>
+            <div class="brand">PhotoSong-i</div>
+            <h1>${safeTitle}</h1>
+            <div class="summary">${entries.length}개의 포도알 앨범</div>
+          </header>
+          ${entryHtml}
+          <button class="print" onclick="window.print()">PDF로 저장 / 인쇄</button>
+        </main>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+}
+
 export function CompletedGrapeAlbum({
   title,
   entries,
@@ -233,6 +361,13 @@ export function CompletedGrapeAlbum({
             {shareMessage}
           </p>
         ) : null}
+        <button
+          className="mt-2 h-11 w-full rounded-[8px] bg-[#eee7eb] text-sm font-black text-[#4c3f47]"
+          onClick={() => openPrintableAlbum(title, entries)}
+          type="button"
+        >
+          앨범 PDF 저장
+        </button>
         <div className="mt-4 grid max-h-[58vh] grid-cols-3 gap-2 overflow-y-auto pr-1">
           {entries.map((entry) => (
             <button

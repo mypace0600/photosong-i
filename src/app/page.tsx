@@ -10,6 +10,7 @@ import { GrapeEntryDetail } from "@/components/GrapeEntryDetail";
 import { GoalSheet } from "@/components/GoalSheet";
 import { GrapeEntrySheet } from "@/components/GrapeEntrySheet";
 import { LoadingGrapeCluster } from "@/components/LoadingGrapeCluster";
+import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
 import {
   completeChallenge,
   createChallenge,
@@ -80,6 +81,7 @@ export default function Home() {
   const [detailEntry, setDetailEntry] = useState<GrapeEntry | null>(null);
   const [draftTitle, setDraftTitle] = useState("운동 30일");
   const [draftGrapeCount, setDraftGrapeCount] = useState(30);
+  const [draftOneGrapePerDay, setDraftOneGrapePerDay] = useState(false);
   const [draftEntry, setDraftEntry] = useState<GrapeEntryDraft>({
     file: null,
     previewUrl: "",
@@ -167,6 +169,7 @@ export default function Home() {
       setChallenge(nextChallenge);
       setDraftTitle(nextChallenge.title);
       setDraftGrapeCount(nextChallenge.grapeCount);
+      setDraftOneGrapePerDay(nextChallenge.oneGrapePerDay);
       setDetailEntry(null);
     } catch (error) {
       setAppError(
@@ -272,6 +275,7 @@ export default function Home() {
     setEditingChallengeId(null);
     setDraftTitle("");
     setDraftGrapeCount(30);
+    setDraftOneGrapePerDay(false);
     setAppError("");
     setSuccessMessage("");
     setSetupOpen(true);
@@ -281,6 +285,7 @@ export default function Home() {
     setEditingChallengeId(summary.id);
     setDraftTitle(summary.title);
     setDraftGrapeCount(summary.grapeCount);
+    setDraftOneGrapePerDay(summary.oneGrapePerDay);
     setAppError("");
     setSuccessMessage("");
     setSetupOpen(true);
@@ -328,6 +333,7 @@ export default function Home() {
           challengeId: editingChallengeId,
           title,
           grapeCount,
+          oneGrapePerDay: draftOneGrapePerDay,
         });
         setChallengeSummaries((current) =>
           current.map((item) =>
@@ -342,6 +348,7 @@ export default function Home() {
                 ...current,
                 title: row.title,
                 grapeCount: row.grape_count,
+                oneGrapePerDay: row.one_grape_per_day ?? false,
               }
             : current,
         );
@@ -357,6 +364,7 @@ export default function Home() {
         userId: user.id,
         title,
         grapeCount,
+        oneGrapePerDay: draftOneGrapePerDay,
       });
       setChallenge(created.challenge);
       setChallengeSummaries((current) => [created.summary, ...current]);
@@ -447,6 +455,15 @@ export default function Home() {
 
     if (!draftEntry.file) {
       setAppError("사진을 먼저 선택하세요.");
+      return;
+    }
+
+    if (
+      challenge.oneGrapePerDay &&
+      challenge.entries.some((entry) => entry.eventDate === draftEntry.eventDate)
+    ) {
+      setAppError("이 목표는 같은 사건 날짜에 포도알을 하나만 채울 수 있습니다.");
+      setSuccessMessage("");
       return;
     }
 
@@ -644,6 +661,7 @@ export default function Home() {
           </header>
 
           <FeedbackMessage error={appError} success={successMessage} />
+          <PwaInstallPrompt />
 
           <div className="mt-6 grid grid-cols-2 rounded-[8px] bg-[#eee7eb] p-1">
             <button
@@ -765,10 +783,12 @@ export default function Home() {
               editing={Boolean(editingChallengeId)}
               title={draftTitle}
               grapeCount={draftGrapeCount}
+              oneGrapePerDay={draftOneGrapePerDay}
               error={appError}
               saving={saving}
               onTitleChange={setDraftTitle}
               onGrapeCountChange={setDraftGrapeCount}
+              onOneGrapePerDayChange={setDraftOneGrapePerDay}
               onSubmit={handleGoalSubmit}
               onClose={() => {
                 setSetupOpen(false);
@@ -831,6 +851,22 @@ export default function Home() {
                 value={draftGrapeCount}
               />
             </label>
+            <label className="mt-4 flex items-start gap-3 rounded-[8px] bg-[#fff8f3] p-3 text-sm font-bold text-[#604c5a] ring-1 ring-[#ead8d0]">
+              <input
+                checked={draftOneGrapePerDay}
+                className="mt-1 size-4 accent-[#6f2c83]"
+                onChange={(event) =>
+                  setDraftOneGrapePerDay(event.target.checked)
+                }
+                type="checkbox"
+              />
+              <span>
+                하루 한 알만 채우기
+                <span className="mt-1 block text-xs leading-5 text-[#86717f]">
+                  같은 사건 날짜에는 포도알을 하나만 등록합니다.
+                </span>
+              </span>
+            </label>
             <FeedbackMessage error={appError} className="mt-3" />
             <button
               className="mt-4 h-12 w-full rounded-[8px] bg-[#6f2c83] text-sm font-black text-white disabled:bg-[#b6a6bd]"
@@ -890,6 +926,7 @@ export default function Home() {
                   entryCount: challenge.entries.length,
                   createdAt: "",
                   completedAt: challenge.completedAt,
+                  oneGrapePerDay: challenge.oneGrapePerDay,
                 })
               }
               type="button"
@@ -899,7 +936,8 @@ export default function Home() {
           </div>
         </header>
 
-        <FeedbackMessage error={appError} success={successMessage} />
+          <FeedbackMessage error={appError} success={successMessage} />
+          <PwaInstallPrompt />
 
         <section className="flex flex-1 flex-col justify-center py-8">
           <GrapeCluster
@@ -939,12 +977,14 @@ export default function Home() {
             editing={Boolean(editingChallengeId)}
             title={draftTitle}
             grapeCount={draftGrapeCount}
+            oneGrapePerDay={draftOneGrapePerDay}
             error={appError}
             saving={saving}
             authSubmitting={authSubmitting}
             showDangerActions
             onTitleChange={setDraftTitle}
             onGrapeCountChange={setDraftGrapeCount}
+            onOneGrapePerDayChange={setDraftOneGrapePerDay}
             onSubmit={handleGoalSubmit}
             onClose={() => {
               setSetupOpen(false);

@@ -5,6 +5,7 @@ export type ChallengeRow = {
   grape_count: number;
   created_at: string;
   completed_at: string | null;
+  one_grape_per_day: boolean;
 };
 
 export type GrapeEntryRow = {

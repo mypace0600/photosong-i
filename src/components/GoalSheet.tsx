@@ -7,12 +7,14 @@ type GoalSheetProps = {
   editing: boolean;
   title: string;
   grapeCount: number;
+  oneGrapePerDay: boolean;
   error: string;
   saving: boolean;
   authSubmitting?: boolean;
   showDangerActions?: boolean;
   onTitleChange: (value: string) => void;
   onGrapeCountChange: (value: number) => void;
+  onOneGrapePerDayChange: (value: boolean) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onClose: () => void;
   onDelete?: () => void;
@@ -23,12 +25,14 @@ export function GoalSheet({
   editing,
   title,
   grapeCount,
+  oneGrapePerDay,
   error,
   saving,
   authSubmitting = false,
   showDangerActions = false,
   onTitleChange,
   onGrapeCountChange,
+  onOneGrapePerDayChange,
   onSubmit,
   onClose,
   onDelete,
@@ -71,6 +75,20 @@ export function GoalSheet({
             type="number"
             value={grapeCount}
           />
+        </label>
+        <label className="mt-4 flex items-start gap-3 rounded-[8px] bg-[#fff8f3] p-3 text-sm font-bold text-[#604c5a] ring-1 ring-[#ead8d0]">
+          <input
+            checked={oneGrapePerDay}
+            className="mt-1 size-4 accent-[#6f2c83]"
+            onChange={(event) => onOneGrapePerDayChange(event.target.checked)}
+            type="checkbox"
+          />
+          <span>
+            하루 한 알만 채우기
+            <span className="mt-1 block text-xs leading-5 text-[#86717f]">
+              같은 사건 날짜에는 포도알을 하나만 등록합니다.
+            </span>
+          </span>
         </label>
         <FeedbackMessage error={error} className="mt-3" />
         <div className="mt-4 grid grid-cols-2 gap-2">
