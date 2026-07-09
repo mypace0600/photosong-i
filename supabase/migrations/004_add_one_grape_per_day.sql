@@ -35,7 +35,7 @@ begin
       and user_id = auth.uid()
       and event_date = p_event_date
   ) then
-    raise exception 'Only one grape entry per day is allowed';
+    raise exception 'Duplicate achievement date is not allowed for this challenge';
   end if;
 
   select coalesce(max(grape_index), 0) + 1

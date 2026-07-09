@@ -462,7 +462,7 @@ export default function Home() {
       challenge.oneGrapePerDay &&
       challenge.entries.some((entry) => entry.eventDate === draftEntry.eventDate)
     ) {
-      setAppError("이 목표는 같은 사건 날짜에 포도알을 하나만 채울 수 있습니다.");
+      setAppError("이 목표는 같은 달성일로 포도알을 여러 개 등록할 수 없습니다.");
       setSuccessMessage("");
       return;
     }
@@ -861,9 +861,9 @@ export default function Home() {
                 type="checkbox"
               />
               <span>
-                하루 한 알만 채우기
+                같은 달성일 중복 방지
                 <span className="mt-1 block text-xs leading-5 text-[#86717f]">
-                  같은 사건 날짜에는 포도알을 하나만 등록합니다.
+                  이 목표에서는 같은 달성일로 포도알을 여러 개 등록할 수 없습니다.
                 </span>
               </span>
             </label>
