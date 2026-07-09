@@ -1,6 +1,7 @@
 import type { FormEvent } from "react";
 import { BottomSheet } from "@/components/BottomSheet";
 import { FeedbackMessage } from "@/components/FeedbackMessage";
+import { GoalTemplatePicker } from "@/components/GoalTemplatePicker";
 
 type GoalSheetProps = {
   editing: boolean;
@@ -39,6 +40,14 @@ export function GoalSheet({
         <h2 className="text-lg font-black">
           {editing ? "목표 수정" : "목표 만들기"}
         </h2>
+        {!editing ? (
+          <GoalTemplatePicker
+            onSelect={(template) => {
+              onTitleChange(template.title);
+              onGrapeCountChange(template.grapeCount);
+            }}
+          />
+        ) : null}
         <label className="mt-4 block text-sm font-bold text-[#604c5a]">
           목표
           <input

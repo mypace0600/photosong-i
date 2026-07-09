@@ -12,6 +12,7 @@ export type Challenge = {
   id: string;
   title: string;
   grapeCount: number;
+  completedAt: string | null;
   entries: GrapeEntry[];
 };
 
@@ -21,6 +22,7 @@ export type ChallengeSummary = {
   grapeCount: number;
   entryCount: number;
   createdAt: string;
+  completedAt: string | null;
 };
 
 export type GrapeEntryDraft = {

@@ -40,6 +40,7 @@ export async function fetchChallengeSummaries(userId: string) {
     grapeCount: row.grape_count,
     entryCount: countByChallenge.get(row.id) ?? 0,
     createdAt: formatDate(row.created_at),
+    completedAt: row.completed_at,
   }));
 }
 
@@ -73,6 +74,7 @@ export async function fetchChallengeDetail(
     id: row.id,
     title: row.title,
     grapeCount: row.grape_count,
+    completedAt: row.completed_at,
     entries,
   };
 }
@@ -100,6 +102,7 @@ export async function createChallenge(params: {
       id: row.id,
       title: row.title,
       grapeCount: row.grape_count,
+      completedAt: row.completed_at,
       entries: [],
     },
     summary: {
@@ -108,6 +111,7 @@ export async function createChallenge(params: {
       grapeCount: row.grape_count,
       entryCount: 0,
       createdAt: formatDate(row.created_at),
+      completedAt: row.completed_at,
     },
   };
 }
@@ -179,5 +183,6 @@ export function toChallengeSummary(
     grapeCount: row.grape_count,
     entryCount: previous?.entryCount ?? 0,
     createdAt: previous?.createdAt ?? formatDate(row.created_at),
+    completedAt: row.completed_at,
   };
 }

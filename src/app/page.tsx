@@ -4,6 +4,7 @@ import type { User } from "@supabase/supabase-js";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { FeedbackMessage } from "@/components/FeedbackMessage";
 import { CompletedGrapeAlbum } from "@/components/CompletedGrapeAlbum";
+import { GoalTemplatePicker } from "@/components/GoalTemplatePicker";
 import { GrapeCluster } from "@/components/GrapeCluster";
 import { GrapeEntryDetail } from "@/components/GrapeEntryDetail";
 import { GoalSheet } from "@/components/GoalSheet";
@@ -60,6 +61,9 @@ export default function Home() {
   const [challengeSummaries, setChallengeSummaries] = useState<
     ChallengeSummary[]
   >([]);
+  const [challengeListFilter, setChallengeListFilter] = useState<
+    "active" | "completed"
+  >("active");
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [dataLoading, setDataLoading] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
@@ -95,6 +99,17 @@ export default function Home() {
   const complete = Boolean(
     challenge && challenge.entries.length >= challenge.grapeCount,
   );
+  const activeChallengeSummaries = challengeSummaries.filter(
+    (summary) => !summary.completedAt && summary.entryCount < summary.grapeCount,
+  );
+  const completedChallengeSummaries = challengeSummaries.filter(
+    (summary) =>
+      Boolean(summary.completedAt) || summary.entryCount >= summary.grapeCount,
+  );
+  const visibleChallengeSummaries =
+    challengeListFilter === "active"
+      ? activeChallengeSummaries
+      : completedChallengeSummaries;
 
   function clearDraftEntry() {
     setDraftEntry((current) => {
@@ -127,11 +142,6 @@ export default function Home() {
       }
 
       setChallengeSummaries(summaries);
-
-      if (summaries.length === 1) {
-        await loadChallengeDetail(summaries[0].id, currentUser);
-        return;
-      }
 
       setChallenge(null);
       setDetailEntry(null);
@@ -457,11 +467,14 @@ export default function Home() {
       if (nextGrapeIndex === challenge.grapeCount) {
         await completeChallenge(challenge.id);
       }
+      const completedAt =
+        nextGrapeIndex === challenge.grapeCount ? new Date().toISOString() : null;
 
       setChallenge((current) =>
         current
           ? {
               ...current,
+              completedAt: completedAt ?? current.completedAt,
               entries: [...current.entries, entry],
             }
           : current,
@@ -469,7 +482,12 @@ export default function Home() {
       setChallengeSummaries((current) =>
         current.map((item) =>
           item.id === challenge.id
-            ? { ...item, entryCount: item.entryCount + 1 }
+            ? {
+                ...item,
+                entryCount: item.entryCount + 1,
+                completedAt:
+                  completedAt ?? item.completedAt,
+              }
             : item,
         ),
       );
@@ -612,7 +630,7 @@ export default function Home() {
             <div>
               <p className="text-sm font-black text-[#7c3a5d]">PhotoSong-i</p>
               <h1 className="mt-1 text-3xl font-black tracking-normal">
-                목표 목록
+                포도송이 보관함
               </h1>
             </div>
             <button
@@ -627,11 +645,39 @@ export default function Home() {
 
           <FeedbackMessage error={appError} success={successMessage} />
 
-          <div className="mt-6 space-y-3">
-            {challengeSummaries.map((summary) => {
+          <div className="mt-6 grid grid-cols-2 rounded-[8px] bg-[#eee7eb] p-1">
+            <button
+              className={`h-10 rounded-[7px] text-sm font-black ${
+                challengeListFilter === "active"
+                  ? "bg-white text-[#6f2c83] shadow-sm"
+                  : "text-[#604c5a]"
+              }`}
+              onClick={() => setChallengeListFilter("active")}
+              type="button"
+            >
+              진행 중 {activeChallengeSummaries.length}
+            </button>
+            <button
+              className={`h-10 rounded-[7px] text-sm font-black ${
+                challengeListFilter === "completed"
+                  ? "bg-white text-[#6f2c83] shadow-sm"
+                  : "text-[#604c5a]"
+              }`}
+              onClick={() => setChallengeListFilter("completed")}
+              type="button"
+            >
+              완성됨 {completedChallengeSummaries.length}
+            </button>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {visibleChallengeSummaries.map((summary) => {
               const progress = Math.round(
                 (summary.entryCount / summary.grapeCount) * 100,
               );
+              const isCompleted =
+                Boolean(summary.completedAt) ||
+                summary.entryCount >= summary.grapeCount;
 
               return (
                 <article
@@ -653,7 +699,9 @@ export default function Home() {
                         </p>
                       </div>
                       <span className="rounded-full bg-[#fff8f3] px-3 py-1 text-sm font-black text-[#6f2c83]">
-                        {summary.entryCount}/{summary.grapeCount}
+                        {isCompleted
+                          ? "완성"
+                          : `${summary.entryCount}/${summary.grapeCount}`}
                       </span>
                     </div>
                     <div className="mt-3 h-2 rounded-full bg-[#ead8d0]">
@@ -693,6 +741,15 @@ export default function Home() {
                 </article>
               );
             })}
+            {visibleChallengeSummaries.length === 0 ? (
+              <div className="rounded-[8px] bg-white px-4 py-8 text-center shadow-sm">
+                <p className="text-sm font-black text-[#604c5a]">
+                  {challengeListFilter === "active"
+                    ? "진행 중인 포도송이가 없습니다."
+                    : "완성된 포도송이가 없습니다."}
+                </p>
+              </div>
+            ) : null}
           </div>
 
           <button
@@ -753,6 +810,12 @@ export default function Home() {
                 value={draftTitle}
               />
             </label>
+            <GoalTemplatePicker
+              onSelect={(template) => {
+                setDraftTitle(template.title);
+                setDraftGrapeCount(template.grapeCount);
+              }}
+            />
             <label className="mt-4 block text-sm font-bold text-[#604c5a]">
               도전 일수
               <input
@@ -826,6 +889,7 @@ export default function Home() {
                   grapeCount: challenge.grapeCount,
                   entryCount: challenge.entries.length,
                   createdAt: "",
+                  completedAt: challenge.completedAt,
                 })
               }
               type="button"
@@ -940,6 +1004,7 @@ export default function Home() {
           <CompletedGrapeAlbum
             title={challenge.title}
             entries={challenge.entries}
+            grapeCount={challenge.grapeCount}
             onEntryClick={(entry) => {
               setDetailEntry(entry);
               setAlbumOpen(false);
